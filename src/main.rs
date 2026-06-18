@@ -15,6 +15,7 @@ mod db;
 mod diff;
 mod export;
 mod extract;
+mod graph;
 mod init;
 mod log;
 mod merge;
@@ -71,6 +72,12 @@ enum Command {
         /// Show tags inline
         #[arg(long)]
         tags: bool,
+        /// Draw the commit graph (branches and merges)
+        #[arg(long)]
+        graph: bool,
+        /// With --graph, include all branches (not just the current one)
+        #[arg(long)]
+        all: bool,
     },
 
     /// Show tracked files and whether they are modified
@@ -178,7 +185,12 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Add { files } => add::run(files),
         Command::Remove { file } => remove::run(file),
         Command::Commit { message } => commit::run(message),
-        Command::Log { file, tags } => log::run(file, tags),
+        Command::Log {
+            file,
+            tags,
+            graph,
+            all,
+        } => log::run(file, tags, graph, all),
         Command::Status => status::run(),
         Command::Diff { args } => diff::run(args),
         Command::Changes { args } => changes::run(args),

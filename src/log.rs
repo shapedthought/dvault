@@ -15,9 +15,15 @@ pub fn format_timestamp(iso: &str) -> String {
     }
 }
 
-pub fn run(file: Option<String>, show_tags: bool) -> Result<()> {
+pub fn run(file: Option<String>, show_tags: bool, graph: bool, all: bool) -> Result<()> {
     let vault = Vault::discover()?;
     let db = Db::open(&vault.db_path())?;
+
+    if graph {
+        // The graph shows topology across the branch DAG; the per-file filter
+        // and inline-tags flag don't apply (refs are always decorated).
+        return crate::graph::run(&vault, &db, all);
+    }
 
     // If filtering by file, normalise to the stored relative form.
     let file_rel = match &file {

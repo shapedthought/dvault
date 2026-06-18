@@ -320,6 +320,7 @@ dependencies = [
  "flate2",
  "hex",
  "quick-xml",
+ "renderdag",
  "rusqlite",
  "serde",
  "sha2",
@@ -724,6 +725,12 @@ name = "r-efi"
 version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "renderdag"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "059ba6bcca92be2f59df9dae8205bbd7197cab946406f5fff29a5f48244b1105"
 
 [[package]]
 name = "rusqlite"

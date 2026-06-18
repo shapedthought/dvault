@@ -47,6 +47,13 @@ pub struct CommitFile {
     pub compressed: bool,
 }
 
+/// A commit paired with its parent ids (for DAG/graph rendering).
+#[derive(Debug, Clone)]
+pub struct GraphCommit {
+    pub commit: Commit,
+    pub parents: Vec<String>,
+}
+
 impl Db {
     pub fn open(path: &Path) -> Result<Db> {
         let conn = Connection::open(path)
@@ -364,6 +371,33 @@ impl Db {
             )
             .optional()?
             .with_context(|| format!("commit not found: {id}"))
+    }
+
+    /// Every commit with its parent ids, newest first — for graph rendering.
+    /// (Callers filter to the reachable set they want to display.)
+    pub fn all_commits_with_parents(&self) -> Result<Vec<GraphCommit>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, created_at, message, author_name, author_email, parent_id, second_parent_id
+             FROM commits ORDER BY created_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            let commit = Commit {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                message: row.get(2)?,
+                author_name: row.get(3)?,
+                author_email: row.get(4)?,
+            };
+            let mut parents = Vec::new();
+            if let Some(p) = row.get::<_, Option<String>>(5)? {
+                parents.push(p);
+            }
+            if let Some(p) = row.get::<_, Option<String>>(6)? {
+                parents.push(p);
+            }
+            Ok(GraphCommit { commit, parents })
+        })?;
+        rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
     }
 
     /// The snapshot of `file` recorded in commit `commit_id`, if any.

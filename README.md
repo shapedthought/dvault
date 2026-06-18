@@ -95,16 +95,26 @@ dvault commit -m "Board-approved version"
 ### `dvault status`
 Lists tracked files and whether each is unchanged, modified, new (staged but never committed), or missing.
 
-### `dvault log [file] [--tags]`
-Shows commit history, newest first. Pass a filename to see only commits touching that file. Pass `--tags` to show tags inline.
+### `dvault log [file] [--tags] [--graph [--all]]`
+Shows commit history, newest first. Pass a filename to see only commits touching that file. Pass `--tags` to show tags inline. Pass `--graph` to draw the branch/merge structure as a graph (add `--all` to include every branch, not just the current one).
 ```sh
 dvault log
 dvault log report.docx
 dvault log --tags
+dvault log --graph --all
 ```
 ```
 a3f9c12  2026-06-18 14:32  Board-approved version   Jane Smith  (board-approved)
 b71d003  2026-06-17 09:11  First draft              Jane Smith
+```
+With `--graph`, decorated with `HEAD ->`, branch, and tag refs:
+```
+⍟─╮ 9ed9830 (HEAD -> main, tag: approved) Merge branch 'draft' into main
+● │ ce3c33e Update figures
+│ ● 1208fc4 (draft) Polish draft
+│ ● 5b13208 Rewrite intro
+●─╯ 35b4b33 Fix typo
+⊝ 24e684f Initial version
 ```
 
 ### `dvault diff <file>` / `dvault diff <from> <to> <file>`
