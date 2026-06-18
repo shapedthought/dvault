@@ -146,7 +146,7 @@ const RESET: &str = "\x1b[0m";
 /// Whether to emit ANSI color. Off when piped/redirected so output stays plain,
 /// with the usual overrides: `NO_COLOR` always disables; `CLICOLOR_FORCE`
 /// forces color on (handy when piping into a pager like `less -R`).
-fn use_color() -> bool {
+pub fn use_color() -> bool {
     use std::io::IsTerminal;
     if std::env::var_os("NO_COLOR").is_some() {
         return false;

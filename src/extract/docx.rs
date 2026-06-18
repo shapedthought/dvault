@@ -17,7 +17,7 @@
 
 use anyhow::{Context, Result, bail};
 use quick_xml::Reader;
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use std::io::{Cursor, Read};
 
 type Archive = zip::ZipArchive<Cursor<Vec<u8>>>;
@@ -190,6 +190,142 @@ fn parse_paragraphs(xml: &[u8]) -> Result<Vec<String>> {
     Ok(lines)
 }
 
+/// A Word tracked change (revision mark) embedded in a document: an insertion
+/// (`<w:ins>`) or deletion (`<w:del>`), with the author/date Word recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeKind {
+    Insertion,
+    Deletion,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrackedChange {
+    pub kind: ChangeKind,
+    pub author: Option<String>,
+    pub date: Option<String>,
+    pub text: String,
+}
+
+/// Extract pending Word tracked changes from a `.docx` body (`document.xml`).
+///
+/// Insertions carry their text in `<w:t>`; deletions carry it in `<w:delText>`.
+/// Adjacent runs of the same kind/author/date (Word often splits one edit into
+/// several runs) are coalesced into a single change.
+pub fn tracked_changes(bytes: &[u8]) -> Result<Vec<TrackedChange>> {
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes.to_vec()))
+        .context("file is not a valid .docx (zip) archive")?;
+    let xml = read_entry(&mut archive, "word/document.xml")?;
+    parse_tracked_changes(&xml)
+}
+
+fn parse_tracked_changes(xml: &[u8]) -> Result<Vec<TrackedChange>> {
+    let mut reader = Reader::from_reader(xml);
+    reader.config_mut().trim_text(false);
+
+    let mut changes: Vec<TrackedChange> = Vec::new();
+    let mut cur: Option<TrackedChange> = None;
+    // True while inside <w:t> or <w:delText> (the text-bearing run elements).
+    let mut in_run_text = false;
+    // True if unchanged text appeared since the last finalized change, which
+    // prevents the next change from coalescing into the previous one.
+    let mut unchanged_between = false;
+    let mut buf = Vec::new();
+
+    loop {
+        match reader
+            .read_event_into(&mut buf)
+            .context("malformed XML in a .docx part")?
+        {
+            Event::Start(e) => match e.name().as_ref() {
+                b"w:ins" => cur = Some(open_change(ChangeKind::Insertion, &e)?),
+                b"w:del" => cur = Some(open_change(ChangeKind::Deletion, &e)?),
+                b"w:t" | b"w:delText" => in_run_text = true,
+                _ => {}
+            },
+            Event::End(e) => match e.name().as_ref() {
+                b"w:t" | b"w:delText" => in_run_text = false,
+                b"w:ins" | b"w:del" => {
+                    if let Some(c) = cur.take() {
+                        finalize(&mut changes, c, &mut unchanged_between);
+                    }
+                }
+                _ => {}
+            },
+            Event::Empty(e) if e.name().as_ref() == b"w:tab" => {
+                if let Some(c) = cur.as_mut() {
+                    c.text.push('\t');
+                }
+            }
+            Event::Text(e) if in_run_text => {
+                let decoded = e.decode().context("could not decode text run")?;
+                match cur.as_mut() {
+                    Some(c) => c.text.push_str(&decoded),
+                    None if !decoded.trim().is_empty() => unchanged_between = true,
+                    None => {}
+                }
+            }
+            Event::GeneralRef(e) if in_run_text => {
+                let resolved = if let Some(c) = e.resolve_char_ref().context("bad char ref")? {
+                    Some(c)
+                } else {
+                    predefined_entity(&e.decode().context("could not decode entity")?)
+                };
+                if let (Some(ch), Some(c)) = (resolved, cur.as_mut()) {
+                    c.text.push(ch);
+                }
+            }
+            Event::Eof => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+    Ok(changes)
+}
+
+/// Read the `w:author` / `w:date` attributes of an `<w:ins>` / `<w:del>`.
+fn open_change(kind: ChangeKind, e: &BytesStart) -> Result<TrackedChange> {
+    let mut author = None;
+    let mut date = None;
+    for attr in e.attributes() {
+        let attr = attr.context("malformed attribute on a tracked change")?;
+        let value = || {
+            let raw = String::from_utf8_lossy(&attr.value);
+            quick_xml::escape::unescape(&raw)
+                .map(|c| c.into_owned())
+                .unwrap_or_else(|_| raw.into_owned())
+        };
+        match attr.key.as_ref() {
+            b"w:author" => author = Some(value()),
+            b"w:date" => date = Some(value()),
+            _ => {}
+        }
+    }
+    Ok(TrackedChange {
+        kind,
+        author,
+        date,
+        text: String::new(),
+    })
+}
+
+fn finalize(changes: &mut Vec<TrackedChange>, change: TrackedChange, unchanged_between: &mut bool) {
+    if change.text.trim().is_empty() {
+        *unchanged_between = false;
+        return;
+    }
+    // Coalesce with the previous change when contiguous and same kind/author/date.
+    let merge = !*unchanged_between
+        && changes.last().is_some_and(|p| {
+            p.kind == change.kind && p.author == change.author && p.date == change.date
+        });
+    if merge {
+        changes.last_mut().unwrap().text.push_str(&change.text);
+    } else {
+        changes.push(change);
+    }
+    *unchanged_between = false;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,5 +472,51 @@ mod tests {
         // No extra parts → output is exactly the body, no banners.
         let docx = make_docx(&para("Just the body"));
         assert_eq!(extract(&docx).unwrap(), vec!["Just the body"]);
+    }
+
+    #[test]
+    fn finds_insertions_and_deletions_with_author() {
+        let body = r#"<w:p>
+            <w:ins w:id="1" w:author="Jane" w:date="2026-06-18T10:00:00Z"><w:r><w:t>new clause</w:t></w:r></w:ins>
+            <w:del w:id="2" w:author="John" w:date="2026-06-17T09:00:00Z"><w:r><w:delText>old wording</w:delText></w:r></w:del>
+        </w:p>"#;
+        let ch = tracked_changes(&make_docx(body)).unwrap();
+        assert_eq!(ch.len(), 2);
+        assert_eq!(ch[0].kind, ChangeKind::Insertion);
+        assert_eq!(ch[0].text, "new clause");
+        assert_eq!(ch[0].author.as_deref(), Some("Jane"));
+        assert_eq!(ch[0].date.as_deref(), Some("2026-06-18T10:00:00Z"));
+        assert_eq!(ch[1].kind, ChangeKind::Deletion);
+        assert_eq!(ch[1].text, "old wording");
+        assert_eq!(ch[1].author.as_deref(), Some("John"));
+    }
+
+    #[test]
+    fn coalesces_adjacent_same_author_insertions() {
+        // Word frequently splits a single insertion into multiple runs.
+        let body = r#"<w:p>
+            <w:ins w:id="1" w:author="Jane" w:date="d"><w:r><w:t>Hello </w:t></w:r></w:ins>
+            <w:ins w:id="2" w:author="Jane" w:date="d"><w:r><w:t>world</w:t></w:r></w:ins>
+        </w:p>"#;
+        let ch = tracked_changes(&make_docx(body)).unwrap();
+        assert_eq!(ch.len(), 1);
+        assert_eq!(ch[0].text, "Hello world");
+    }
+
+    #[test]
+    fn does_not_coalesce_across_unchanged_text() {
+        let body = r#"<w:p>
+            <w:ins w:id="1" w:author="Jane" w:date="d"><w:r><w:t>first</w:t></w:r></w:ins>
+            <w:r><w:t> unchanged </w:t></w:r>
+            <w:ins w:id="2" w:author="Jane" w:date="d"><w:r><w:t>second</w:t></w:r></w:ins>
+        </w:p>"#;
+        let ch = tracked_changes(&make_docx(body)).unwrap();
+        assert_eq!(ch.len(), 2);
+    }
+
+    #[test]
+    fn no_tracked_changes_returns_empty() {
+        let ch = tracked_changes(&make_docx(&para("plain text"))).unwrap();
+        assert!(ch.is_empty());
     }
 }

@@ -8,6 +8,8 @@
 
 pub mod docx;
 
+pub use docx::{ChangeKind, TrackedChange};
+
 use anyhow::{Result, bail};
 use std::path::Path;
 
@@ -37,6 +39,15 @@ pub fn extract_text(path: &str, bytes: &[u8]) -> Result<Vec<String>> {
     match extension(path).as_deref() {
         Some("docx") => docx::extract(bytes),
         Some(other) => bail!("text diff not yet supported for .{other} files"),
+        None => bail!("cannot determine file type for {path}"),
+    }
+}
+
+/// Extract Word tracked changes (revision marks) from raw file bytes.
+pub fn tracked_changes(path: &str, bytes: &[u8]) -> Result<Vec<TrackedChange>> {
+    match extension(path).as_deref() {
+        Some("docx") => docx::tracked_changes(bytes),
+        Some(other) => bail!("tracked changes are only supported for .docx files, not .{other}"),
         None => bail!("cannot determine file type for {path}"),
     }
 }

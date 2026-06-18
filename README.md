@@ -119,6 +119,23 @@ dvault diff b71d003 a3f9c12 report.docx
 ```
 Color is applied only when writing to a terminal; piped or redirected output stays plain text. Set `NO_COLOR=1` to disable it, or `CLICOLOR_FORCE=1` to keep color when piping (e.g. `dvault diff report.docx | less -R`).
 
+### `dvault changes <file>` / `dvault changes <commit> <file>`
+Lists a document's **pending Word tracked changes** (its `<w:ins>`/`<w:del>` revision marks), with the author and date Word recorded. This is distinct from `dvault diff`: `diff` compares two *snapshots*, while `changes` surfaces the unaccepted edits already inside a single document — handy for reviewing a doc someone sent back with Track Changes on.
+```sh
+dvault changes contract.docx          # the working copy
+dvault changes review contract.docx   # a committed/tagged version
+```
+```
+Tracked changes in contract.docx (3):
+
+  - deleted  John Doe, 2026-06-17 14:30
+      "1 January"
+  + inserted  Jane Smith, 2026-06-18 09:15
+      "1 March"
+  + inserted  Jane Smith, 2026-06-18 09:20
+      "A new liability clause is added here."
+```
+
 ### `dvault checkout <commit> <file> [--force]`
 Restores a file to a historic version, **overwriting** the working copy. Prompts for confirmation first; use `--force` to skip the prompt.
 ```sh

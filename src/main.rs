@@ -6,6 +6,7 @@
 
 mod add;
 mod branch;
+mod changes;
 mod checkout;
 mod commit;
 mod config;
@@ -83,6 +84,15 @@ enum Command {
         args: Vec<String>,
     },
 
+    /// List a document's pending Word tracked changes (revision marks)
+    ///
+    /// `dvault changes <file>` inspects the working copy;
+    /// `dvault changes <commit> <file>` inspects a committed version.
+    Changes {
+        #[arg(required = true)]
+        args: Vec<String>,
+    },
+
     /// Restore a file to a historic version, overwriting the working copy
     Checkout {
         commit: String,
@@ -156,6 +166,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Log { file, tags } => log::run(file, tags),
         Command::Status => status::run(),
         Command::Diff { args } => diff::run(args),
+        Command::Changes { args } => changes::run(args),
         Command::Checkout {
             commit,
             file,
