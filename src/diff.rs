@@ -126,66 +126,99 @@ fn print_text_diff(file_rel: &str, old: &Side, new: &Side) -> Result<()> {
         return Ok(());
     }
 
-    let diff = TextDiff::from_lines(&old_text, &new_text);
-    let rendered = diff
-        .unified_diff()
-        .context_radius(3)
-        .header(&old.label, &new.label)
-        .to_string();
-
-    if use_color() {
-        print!("{}", colorize(&rendered));
-    } else {
-        print!("{rendered}");
-    }
+    print!(
+        "{}",
+        render(&old.label, &new.label, &old_text, &new_text, use_color())
+    );
     Ok(())
 }
 
-// ANSI styling for diff output: red deletions, green additions, cyan hunk
-// headers, bold file headers — matching the familiar `git diff` palette.
+// ANSI styling for diff output — the familiar `git diff` palette. Changed words
+// *within* a line get reverse video so they stand out from the rest of the line.
 const RED: &str = "\x1b[31m";
 const GREEN: &str = "\x1b[32m";
+const RED_EMPH: &str = "\x1b[7;31m"; // reverse + red
+const GREEN_EMPH: &str = "\x1b[7;32m"; // reverse + green
 const CYAN: &str = "\x1b[36m";
 const BOLD: &str = "\x1b[1m";
 const RESET: &str = "\x1b[0m";
 
-/// Colorize only when stdout is an interactive terminal and the user hasn't
-/// opted out via `NO_COLOR`, so piped/redirected output stays plain text.
+/// Whether to emit ANSI color. Off when piped/redirected so output stays plain,
+/// with the usual overrides: `NO_COLOR` always disables; `CLICOLOR_FORCE`
+/// forces color on (handy when piping into a pager like `less -R`).
 fn use_color() -> bool {
     use std::io::IsTerminal;
-    std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+    if std::env::var_os("NO_COLOR").is_some() {
+        return false;
+    }
+    if std::env::var_os("CLICOLOR_FORCE").is_some() {
+        return true;
+    }
+    std::io::stdout().is_terminal()
 }
 
-/// Wrap each line of a unified diff in ANSI colors based on its leading marker.
-fn colorize(diff: &str) -> String {
-    let mut out = String::with_capacity(diff.len() + diff.len() / 8);
-    for segment in diff.split_inclusive('\n') {
-        let (body, newline) = match segment.strip_suffix('\n') {
-            Some(b) => (b, "\n"),
-            None => (segment, ""),
-        };
-        // Order matters: `+++`/`---` file headers must be checked before the
-        // single-char `+`/`-` content markers.
-        let color = if body.starts_with("@@") {
-            CYAN
-        } else if body.starts_with("+++") || body.starts_with("---") {
-            BOLD
-        } else if body.starts_with('+') {
-            GREEN
-        } else if body.starts_with('-') {
-            RED
-        } else {
-            "" // context line: no styling
-        };
+/// Render a unified diff between two texts. With `color`, deleted/added lines
+/// are red/green and the specific changed words are emphasized (reverse video)
+/// via `similar`'s inline diffing; without it, plain unified-diff text.
+fn render(old_label: &str, new_label: &str, old_text: &str, new_text: &str, color: bool) -> String {
+    use similar::ChangeTag;
 
-        if color.is_empty() {
-            out.push_str(body);
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut out = String::new();
+
+    if color {
+        out.push_str(&format!("{BOLD}--- {old_label}{RESET}\n"));
+        out.push_str(&format!("{BOLD}+++ {new_label}{RESET}\n"));
+    } else {
+        out.push_str(&format!("--- {old_label}\n+++ {new_label}\n"));
+    }
+
+    for group in diff.grouped_ops(3) {
+        let first = group.first().unwrap();
+        let last = group.last().unwrap();
+        let (os, oe) = (first.old_range().start, last.old_range().end);
+        let (ns, ne) = (first.new_range().start, last.new_range().end);
+        let header = format!("@@ -{},{} +{},{} @@", os + 1, oe - os, ns + 1, ne - ns);
+        if color {
+            out.push_str(&format!("{CYAN}{header}{RESET}\n"));
         } else {
-            out.push_str(color);
-            out.push_str(body);
-            out.push_str(RESET);
+            out.push_str(&header);
+            out.push('\n');
         }
-        out.push_str(newline);
+
+        for op in &group {
+            for change in diff.iter_inline_changes(op) {
+                let (sign, base, emph) = match change.tag() {
+                    ChangeTag::Delete => ('-', RED, RED_EMPH),
+                    ChangeTag::Insert => ('+', GREEN, GREEN_EMPH),
+                    ChangeTag::Equal => (' ', "", ""),
+                };
+
+                if !color || change.tag() == ChangeTag::Equal {
+                    out.push(sign);
+                    for (_emph, text) in change.iter_strings_lossy() {
+                        out.push_str(text.trim_end_matches('\n'));
+                    }
+                } else {
+                    // Colored changed line: tinted sign, then each token tinted,
+                    // with the genuinely changed tokens in reverse video.
+                    out.push_str(base);
+                    out.push(sign);
+                    out.push_str(RESET);
+                    for (emphasized, text) in change.iter_strings_lossy() {
+                        let token = text.trim_end_matches('\n');
+                        if token.is_empty() {
+                            continue;
+                        }
+                        let style = if emphasized { emph } else { base };
+                        out.push_str(style);
+                        out.push_str(token);
+                        out.push_str(RESET);
+                    }
+                }
+                out.push('\n');
+            }
+        }
     }
     out
 }
@@ -200,29 +233,57 @@ fn print_size_diff(old: &Side, new: &Side) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn colorize_marks_each_line_role() {
-        let diff = "--- a (111)\n+++ b (222)\n@@ -1,2 +1,2 @@\n context\n-gone\n+added\n";
-        let out = colorize(diff);
-        assert!(out.contains(&format!("{RED}-gone{RESET}")));
-        assert!(out.contains(&format!("{GREEN}+added{RESET}")));
-        assert!(out.contains(&format!("{CYAN}@@ -1,2 +1,2 @@{RESET}")));
-        assert!(out.contains(&format!("{BOLD}--- a (111){RESET}")));
-        assert!(out.contains(&format!("{BOLD}+++ b (222){RESET}")));
-        // context lines are left untouched
-        assert!(out.contains(" context\n"));
+    /// Strip all ANSI SGR codes so we can assert on the underlying text.
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                // consume up to and including the terminating 'm'
+                for d in chars.by_ref() {
+                    if d == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
     }
 
     #[test]
-    fn colorize_preserves_text_when_stripped_of_codes() {
-        let diff = "@@ -1 +1 @@\n-old\n+new\n";
-        let stripped = colorize(diff)
-            .replace(RED, "")
-            .replace(GREEN, "")
-            .replace(CYAN, "")
-            .replace(BOLD, "")
-            .replace(RESET, "");
-        assert_eq!(stripped, diff);
+    fn plain_render_has_no_escape_codes_and_is_unified() {
+        let out = render("a (111)", "b (222)", "one\ntwo\n", "one\nTWO\n", false);
+        assert!(
+            !out.contains('\x1b'),
+            "plain output must have no ANSI codes"
+        );
+        assert!(out.contains("--- a (111)\n+++ b (222)\n"));
+        assert!(out.contains("@@"));
+        assert!(out.contains("-two\n"));
+        assert!(out.contains("+TWO\n"));
+        assert!(out.contains(" one\n")); // context line, space-prefixed
+    }
+
+    #[test]
+    fn colored_render_emphasizes_only_the_changed_word() {
+        // Only "4.2M" → "4.8M" changed; the rest of the line should not be
+        // reverse-video emphasized.
+        let old = "Revenue was 4.2M today\n";
+        let new = "Revenue was 4.8M today\n";
+        let out = render("a", "b", old, new, true);
+
+        // The changed tokens are wrapped in the reverse-video emphasis codes.
+        assert!(out.contains(&format!("{RED_EMPH}4.2M{RESET}")));
+        assert!(out.contains(&format!("{GREEN_EMPH}4.8M{RESET}")));
+        // Unchanged words on the changed line are tinted but NOT emphasized.
+        assert!(!out.contains(&format!("{RED_EMPH}Revenue")));
+        assert!(!out.contains(&format!("{GREEN_EMPH}today")));
+        // Stripping ANSI yields a clean unified diff with both lines intact.
+        let plain = strip_ansi(&out);
+        assert!(plain.contains("-Revenue was 4.2M today\n"));
+        assert!(plain.contains("+Revenue was 4.8M today\n"));
     }
 }
 

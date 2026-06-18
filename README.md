@@ -108,14 +108,14 @@ b71d003  2026-06-17 09:11  First draft              Jane Smith
 ```
 
 ### `dvault diff <file>` / `dvault diff <from> <to> <file>`
-Shows readable changes for a `.docx`. Deletions are shown in **red**, additions in **green** (like `git diff`).
+Shows readable changes for a `.docx`. Deletions are shown in **red**, additions in **green** (like `git diff`), and within a changed paragraph the **specific changed words are highlighted** (reverse video) so a one-word edit doesn't look like the whole paragraph changed.
 - With just a filename: compares your **working copy** against its last commit.
 - With two commit hashes: compares those two snapshots.
 ```sh
 dvault diff report.docx
 dvault diff b71d003 a3f9c12 report.docx
 ```
-Color is applied only when writing to a terminal; piped or redirected output stays plain text. Set `NO_COLOR=1` to disable it.
+Color is applied only when writing to a terminal; piped or redirected output stays plain text. Set `NO_COLOR=1` to disable it, or `CLICOLOR_FORCE=1` to keep color when piping (e.g. `dvault diff report.docx | less -R`).
 
 ### `dvault checkout <commit> <file> [--force]`
 Restores a file to a historic version, **overwriting** the working copy. Prompts for confirmation first; use `--force` to skip the prompt.
