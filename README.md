@@ -109,6 +109,8 @@ b71d003  2026-06-17 09:11  First draft              Jane Smith
 
 ### `dvault diff <file>` / `dvault diff <from> <to> <file>`
 Shows readable changes for a `.docx`. Deletions are shown in **red**, additions in **green** (like `git diff`), and within a changed paragraph the **specific changed words are highlighted** (reverse video) so a one-word edit doesn't look like the whole paragraph changed.
+
+Diffs cover the whole document, not just the body: **headers, footers, footnotes, endnotes, and comments** are included, each introduced by a `[Header]` / `[Footnotes]` / … banner so you can see *where* a change happened. (Text boxes are part of the body and are covered automatically.)
 - With just a filename: compares your **working copy** against its last commit.
 - With two commit hashes: compares those two snapshots.
 ```sh

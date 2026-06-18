@@ -1,33 +1,114 @@
 //! `.docx` readable-text extraction.
 //!
-//! A `.docx` is a ZIP archive; the body text lives in `word/document.xml`. We
-//! walk the XML and collect the text of `<w:t>` (text run) elements, grouped by
-//! their containing `<w:p>` (paragraph) so each paragraph becomes one logical
-//! line. `<w:tab/>` and `<w:br/>` are preserved as a tab / space so that
-//! tab-separated runs (e.g. table-cell label/value pairs) don't get glued into
-//! run-on words like "EnglishNative".
+//! A `.docx` is a ZIP archive. Body text lives in `word/document.xml`, but a
+//! document's readable content is also spread across other parts: headers
+//! (`word/headerN.xml`), footers (`word/footerN.xml`), footnotes/endnotes, and
+//! comments. They all use the same WordprocessingML — paragraphs (`<w:p>`) of
+//! runs (`<w:r>`) of text (`<w:t>`) — so one parser handles every part.
+//!
+//! We extract each part and concatenate them in a stable order, with the
+//! non-body regions introduced by a `[Header]` / `[Footnotes]` / ... banner so
+//! a diff makes clear *where* a change happened. (Text boxes live inside
+//! `document.xml`, so they're already covered by the body extraction.)
+//!
+//! `<w:tab/>` and `<w:br/>` are preserved as a tab / space so that tab-separated
+//! runs (e.g. table-cell label/value pairs) don't get glued into run-on words
+//! like "EnglishNative".
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use quick_xml::Reader;
 use quick_xml::events::Event;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 
-/// Extract the readable text of a `.docx`, one line per non-empty paragraph.
+type Archive = zip::ZipArchive<Cursor<Vec<u8>>>;
+
+/// Extract the readable text of a `.docx`, one line per non-empty paragraph,
+/// across the body and all supporting regions.
 pub fn extract(bytes: &[u8]) -> Result<Vec<String>> {
-    let document_xml = read_document_xml(bytes)?;
-    parse_document(&document_xml)
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes.to_vec()))
+        .context("file is not a valid .docx (zip) archive")?;
+    let names: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
+
+    let mut lines = Vec::new();
+
+    // Body — required. Includes text boxes (they live inside document.xml).
+    if !names.iter().any(|n| n == "word/document.xml") {
+        bail!("not a valid .docx: missing word/document.xml");
+    }
+    lines.extend(parse_paragraphs(&read_entry(
+        &mut archive,
+        "word/document.xml",
+    )?)?);
+
+    // Headers and footers can each span several files (default/even/first
+    // page); merge them per type so the reader sees one section.
+    let headers = matching(&names, "word/header", ".xml");
+    append_section(
+        &mut lines,
+        "Header",
+        read_and_parse(&mut archive, &headers)?,
+    );
+    let footers = matching(&names, "word/footer", ".xml");
+    append_section(
+        &mut lines,
+        "Footer",
+        read_and_parse(&mut archive, &footers)?,
+    );
+
+    // Single-file regions.
+    for (file, label) in [
+        ("word/footnotes.xml", "Footnotes"),
+        ("word/endnotes.xml", "Endnotes"),
+        ("word/comments.xml", "Comments"),
+    ] {
+        if names.iter().any(|n| n == file) {
+            let section = parse_paragraphs(&read_entry(&mut archive, file)?)?;
+            append_section(&mut lines, label, section);
+        }
+    }
+
+    Ok(lines)
 }
 
-/// Pull `word/document.xml` out of the docx ZIP container.
-fn read_document_xml(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
-        .context("file is not a valid .docx (zip) archive")?;
+/// File names starting with `prefix` and ending with `suffix`, sorted for a
+/// deterministic ordering (so diffs are stable across versions).
+fn matching(names: &[String], prefix: &str, suffix: &str) -> Vec<String> {
+    let mut v: Vec<String> = names
+        .iter()
+        .filter(|n| n.starts_with(prefix) && n.ends_with(suffix))
+        .cloned()
+        .collect();
+    v.sort();
+    v
+}
+
+fn read_entry(archive: &mut Archive, name: &str) -> Result<Vec<u8>> {
     let mut entry = archive
-        .by_name("word/document.xml")
-        .context("not a valid .docx: missing word/document.xml")?;
+        .by_name(name)
+        .with_context(|| format!("could not open {name} inside the .docx"))?;
     let mut buf = Vec::new();
-    std::io::Read::read_to_end(&mut entry, &mut buf).context("could not read word/document.xml")?;
+    entry
+        .read_to_end(&mut buf)
+        .with_context(|| format!("could not read {name}"))?;
     Ok(buf)
+}
+
+/// Parse and concatenate the paragraphs of several parts.
+fn read_and_parse(archive: &mut Archive, files: &[String]) -> Result<Vec<String>> {
+    let mut lines = Vec::new();
+    for f in files {
+        lines.extend(parse_paragraphs(&read_entry(archive, f)?)?);
+    }
+    Ok(lines)
+}
+
+/// Append a labeled section if it has any content.
+fn append_section(lines: &mut Vec<String>, label: &str, section: Vec<String>) {
+    if section.is_empty() {
+        return;
+    }
+    lines.push(format!("[{label}]"));
+    lines.extend(section);
 }
 
 /// The five predefined XML entities.
@@ -42,7 +123,8 @@ fn predefined_entity(name: &str) -> Option<char> {
     }
 }
 
-fn parse_document(xml: &[u8]) -> Result<Vec<String>> {
+/// Walk a WordprocessingML part and return one line per non-empty paragraph.
+fn parse_paragraphs(xml: &[u8]) -> Result<Vec<String>> {
     let mut reader = Reader::from_reader(xml);
     let config = reader.config_mut();
     config.trim_text(false);
@@ -56,7 +138,7 @@ fn parse_document(xml: &[u8]) -> Result<Vec<String>> {
     loop {
         match reader
             .read_event_into(&mut buf)
-            .context("malformed XML in word/document.xml")?
+            .context("malformed XML in a .docx part")?
         {
             Event::Start(e) if e.name().as_ref() == b"w:t" => in_text = true,
             Event::End(e) => match e.name().as_ref() {
@@ -113,20 +195,41 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    const NS: &str = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
     /// Build a minimal .docx (zip with word/document.xml) from a body fragment.
     fn make_docx(body: &str) -> Vec<u8> {
-        let xml = format!(
-            r#"<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>"#
+        make_docx_parts(body, &[])
+    }
+
+    /// Build a .docx with a body plus arbitrary extra parts, each given as
+    /// `(zip_path, raw_xml)`.
+    fn make_docx_parts(body: &str, extra: &[(&str, String)]) -> Vec<u8> {
+        let document = format!(
+            r#"<?xml version="1.0"?><w:document xmlns:w="{NS}"><w:body>{body}</w:body></w:document>"#
         );
         let mut buf = Vec::new();
         {
             let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buf));
-            zip.start_file::<_, ()>("word/document.xml", zip::write::FileOptions::default())
-                .unwrap();
-            zip.write_all(xml.as_bytes()).unwrap();
+            let opts = zip::write::FileOptions::<()>::default();
+            zip.start_file("word/document.xml", opts).unwrap();
+            zip.write_all(document.as_bytes()).unwrap();
+            for (path, xml) in extra {
+                zip.start_file(*path, opts).unwrap();
+                zip.write_all(xml.as_bytes()).unwrap();
+            }
             zip.finish().unwrap();
         }
         buf
+    }
+
+    /// Wrap paragraph fragments in a WordprocessingML root element.
+    fn part(root: &str, inner: &str) -> String {
+        format!(r#"<?xml version="1.0"?><w:{root} xmlns:w="{NS}">{inner}</w:{root}>"#)
+    }
+
+    fn para(text: &str) -> String {
+        format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>")
     }
 
     #[test]
@@ -170,5 +273,68 @@ mod tests {
     #[test]
     fn rejects_non_docx_bytes() {
         assert!(extract(b"not a zip file").is_err());
+    }
+
+    #[test]
+    fn extracts_headers_footers_footnotes_with_banners() {
+        let docx = make_docx_parts(
+            &para("Body paragraph"),
+            &[
+                ("word/header1.xml", part("hdr", &para("Confidential"))),
+                ("word/footer1.xml", part("ftr", &para("Page 1"))),
+                (
+                    "word/footnotes.xml",
+                    part(
+                        "footnotes",
+                        &format!("<w:footnote>{}</w:footnote>", para("See appendix A")),
+                    ),
+                ),
+            ],
+        );
+        assert_eq!(
+            extract(&docx).unwrap(),
+            vec![
+                "Body paragraph",
+                "[Header]",
+                "Confidential",
+                "[Footer]",
+                "Page 1",
+                "[Footnotes]",
+                "See appendix A",
+            ]
+        );
+    }
+
+    #[test]
+    fn merges_multiple_header_files_under_one_banner() {
+        let docx = make_docx_parts(
+            &para("Body"),
+            &[
+                ("word/header2.xml", part("hdr", &para("Even page"))),
+                ("word/header1.xml", part("hdr", &para("Default page"))),
+            ],
+        );
+        // Sorted by filename: header1 before header2, both under one [Header].
+        assert_eq!(
+            extract(&docx).unwrap(),
+            vec!["Body", "[Header]", "Default page", "Even page"]
+        );
+    }
+
+    #[test]
+    fn omits_banner_for_empty_regions() {
+        // A header part with no real text (e.g. only a separator) adds nothing.
+        let docx = make_docx_parts(
+            &para("Body"),
+            &[("word/header1.xml", part("hdr", "<w:p></w:p>"))],
+        );
+        assert_eq!(extract(&docx).unwrap(), vec!["Body"]);
+    }
+
+    #[test]
+    fn body_only_docx_is_unchanged() {
+        // No extra parts → output is exactly the body, no banners.
+        let docx = make_docx(&para("Just the body"));
+        assert_eq!(extract(&docx).unwrap(), vec!["Just the body"]);
     }
 }
