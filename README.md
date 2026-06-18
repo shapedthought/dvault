@@ -1,8 +1,8 @@
 # dvault
 
-Git-like version control for Office documents — without Git, and without needing to know Git.
+Git-like version control for Word documents — without Git, and without needing to know Git.
 
-`dvault` is a single self-contained binary that gives you version history, snapshots, and **readable diffs** for your documents. Instead of comparing opaque binary blobs, it extracts the actual text and shows you what changed in plain language:
+`dvault` is a single self-contained binary that gives you version history, snapshots, and **readable diffs** for your `.docx` files. Instead of comparing opaque binary blobs, it extracts the actual text and shows you what changed in plain language:
 
 ```diff
 --- report.docx (b71d003)
@@ -13,11 +13,11 @@ Git-like version control for Office documents — without Git, and without needi
 +Revenue for Q3 was $4.8M.
 ```
 
-## Status
+## Focus
 
-**Only Word `.docx` files are supported today.** Everything in this README applies to `.docx`.
+`dvault` is **built for Word `.docx` documents** — that focus is deliberate, not a limitation on the way to something else. Word is where readable, content-level diffs shine: the body text lives in a structured XML part we can extract cleanly, so a one-line edit shows as a one-line change instead of an opaque binary blob.
 
-Support for `.xlsx`, `.pptx`, and `.pdf` is planned but **not yet implemented** — `dvault add` currently rejects anything other than `.docx`. (The internal storage and history layers are format-agnostic, so adding a new format only means writing its text extractor.)
+`dvault add` only accepts `.docx`; other file types are rejected with a clear message. The storage and history layers happen to be format-agnostic, so other formats *could* be added later, but the tool is intentionally scoped to do one thing well.
 
 ## Installing
 
@@ -163,7 +163,7 @@ dvault switch draft-rewrite
 ```
 
 ### `dvault merge <branch>`
-Merges another branch into the current one. Because Office files are binary, merging works **per whole file**, not by blending contents:
+Merges another branch into the current one. Because `.docx` files are binary archives, merging works **per whole file**, not by blending contents:
 
 - If only one branch changed a file, that version is taken automatically.
 - If **both** branches changed the same file, it's a conflict — you choose to keep **o**urs or take **t**heirs, and can show the readable **d**iff first.
@@ -212,7 +212,7 @@ dvault merge q3-revisions       # fold the work back in
 
 ## Scope
 
-Intentionally **not** included: remotes/sync (`push`/`pull`), rename tracking, and auto-commit-on-save. Merging is **whole-file** (you pick a side on conflict), not a content-level blend — an intentional choice for binary Office documents.
+Intentionally **not** included: other file formats (Word `.docx` only, by design), remotes/sync (`push`/`pull`), rename tracking, and auto-commit-on-save. Merging is **whole-file** (you pick a side on conflict), not a content-level blend — an intentional choice for binary `.docx` files.
 
 ## Development
 
