@@ -15,20 +15,41 @@ use anyhow::{Context, Result, bail};
 use similar::TextDiff;
 
 /// One side of a diff: a labelled set of bytes.
-struct Side {
-    label: String,
-    bytes: Vec<u8>,
+pub(crate) struct Side {
+    pub label: String,
+    pub bytes: Vec<u8>,
 }
 
 pub fn run(args: Vec<String>) -> Result<()> {
     let vault = Vault::discover()?;
     let db = Db::open(&vault.db_path())?;
+
+    let (old, new, file_rel) = resolve_sides(&vault, &db, &args)?;
+
+    if can_diff(&file_rel) {
+        print_text_diff(&file_rel, &old, &new)?;
+    } else {
+        print_size_diff(&old, &new);
+    }
+    Ok(())
+}
+
+/// Resolve `diff`-style args into the two sides being compared and the
+/// vault-relative file path. Shared by `diff` and `report`.
+///
+///   [file]            → working copy vs the file's last commit
+///   [from, to, file]  → between two commits/tags
+pub(crate) fn resolve_sides(
+    vault: &Vault,
+    db: &Db,
+    args: &[String],
+) -> Result<(Side, Side, String)> {
     let objects = vault.objects_dir();
 
-    let (old, new, file_rel) = match args.as_slice() {
+    let result = match args {
         [file] => {
             let rel = vault.relativize(file)?;
-            let tip = refs::head_tip(&vault)?
+            let tip = refs::head_tip(vault)?
                 .context("No commits yet on this branch. Nothing to diff against.")?;
             let (commit, cf) = db
                 .file_at_commit(&tip, &rel)?
@@ -55,21 +76,16 @@ pub fn run(args: Vec<String>) -> Result<()> {
         }
         [from, to, file] => {
             let rel = vault.relativize(file)?;
-            let from_id = crate::revparse::resolve(&vault, &db, from)?;
-            let to_id = crate::revparse::resolve(&vault, &db, to)?;
-            let old = load_commit_side(&db, &objects, &from_id, &rel)?;
-            let new = load_commit_side(&db, &objects, &to_id, &rel)?;
+            let from_id = crate::revparse::resolve(vault, db, from)?;
+            let to_id = crate::revparse::resolve(vault, db, to)?;
+            let old = load_commit_side(db, &objects, &from_id, &rel)?;
+            let new = load_commit_side(db, &objects, &to_id, &rel)?;
             (old, new, rel)
         }
         _ => bail!("Usage: dvault diff <file>  OR  dvault diff <from> <to> <file>"),
     };
 
-    if can_diff(&file_rel) {
-        print_text_diff(&file_rel, &old, &new)?;
-    } else {
-        print_size_diff(&old, &new);
-    }
-    Ok(())
+    Ok(result)
 }
 
 /// Render a readable diff between two in-memory versions of a file (used by
@@ -160,7 +176,13 @@ pub fn use_color() -> bool {
 /// Render a unified diff between two texts. With `color`, deleted/added lines
 /// are red/green and the specific changed words are emphasized (reverse video)
 /// via `similar`'s inline diffing; without it, plain unified-diff text.
-fn render(old_label: &str, new_label: &str, old_text: &str, new_text: &str, color: bool) -> String {
+pub(crate) fn render(
+    old_label: &str,
+    new_label: &str,
+    old_text: &str,
+    new_text: &str,
+    color: bool,
+) -> String {
     use similar::ChangeTag;
 
     let diff = TextDiff::from_lines(old_text, new_text);

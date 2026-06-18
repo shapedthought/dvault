@@ -136,6 +136,14 @@ Tracked changes in contract.docx (3):
       "A new liability clause is added here."
 ```
 
+### `dvault report [<from> <to>] <file> [--format html|md] [--out path]`
+Writes a **standalone HTML or Markdown report** of the changes — something you can email or attach for someone who doesn't have dvault. Same version selection as `diff`. HTML (the default) is self-contained (inline CSS, no assets) and highlights the specific changed words; Markdown emits a GitHub-style fenced ` ```diff ` block.
+```sh
+dvault report report.docx                       # report.docx vs last commit → report-diff.html
+dvault report v1 approved report.docx           # between two commits/tags
+dvault report report.docx --format md --out changes.md
+```
+
 ### `dvault checkout <commit> <file> [--force]`
 Restores a file to a historic version, **overwriting** the working copy. Prompts for confirmation first; use `--force` to skip the prompt.
 ```sh

@@ -20,6 +20,7 @@ mod log;
 mod merge;
 mod refs;
 mod remove;
+mod report;
 mod revparse;
 mod status;
 mod store;
@@ -91,6 +92,20 @@ enum Command {
     Changes {
         #[arg(required = true)]
         args: Vec<String>,
+    },
+
+    /// Write a shareable HTML or Markdown report of the changes
+    ///
+    /// Same version selection as `diff`: `<file>` or `<from> <to> <file>`.
+    Report {
+        #[arg(required = true)]
+        args: Vec<String>,
+        /// Output format: html (default) or md
+        #[arg(long, default_value = "html")]
+        format: String,
+        /// Output file path (default: <name>-diff.<ext>)
+        #[arg(long)]
+        out: Option<String>,
     },
 
     /// Restore a file to a historic version, overwriting the working copy
@@ -167,6 +182,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Status => status::run(),
         Command::Diff { args } => diff::run(args),
         Command::Changes { args } => changes::run(args),
+        Command::Report { args, format, out } => report::run(args, format, out),
         Command::Checkout {
             commit,
             file,
