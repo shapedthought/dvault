@@ -6,7 +6,18 @@ use crate::refs;
 use crate::vault::Vault;
 use anyhow::{Result, bail};
 
-pub fn run(name: Option<String>, delete: bool, force: bool) -> Result<()> {
+pub fn run(name: Option<String>, delete: bool, force: bool, show_current: bool) -> Result<()> {
+    // Prompt-friendly: print just the current branch, and stay silent (exit 0,
+    // no output, no stderr) when not in a vault, so it's safe in a $PS1 hook.
+    if show_current {
+        if let Ok(vault) = Vault::discover()
+            && let Ok(branch) = refs::current_branch(&vault)
+        {
+            println!("{branch}");
+        }
+        return Ok(());
+    }
+
     let vault = Vault::discover()?;
     // -D (force) implies deletion, matching `git branch -D`.
     let delete = delete || force;

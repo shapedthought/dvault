@@ -190,6 +190,9 @@ enum Command {
         /// Force deletion of an unmerged branch
         #[arg(short = 'D', long)]
         force: bool,
+        /// Print only the current branch name (for shell prompts); silent outside a vault
+        #[arg(long = "show-current")]
+        show_current: bool,
     },
 
     /// Switch to another branch, updating the working files
@@ -269,7 +272,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             name,
             delete,
             force,
-        } => branch::run(name, delete, force),
+            show_current,
+        } => branch::run(name, delete, force, show_current),
         Command::Switch { branch, force } => switch::run(branch, force),
         Command::Merge { branch } => merge::run(branch),
         Command::Lock { force } => lock::run_lock(force),

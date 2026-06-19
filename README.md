@@ -285,7 +285,7 @@ dvault branch draft-rewrite   # create
 dvault branch -d draft-rewrite   # delete (refuses if it has unmerged commits)
 dvault branch -D draft-rewrite   # force-delete even if unmerged
 ```
-Deleting a branch only removes the label — committed snapshots are never deleted. You can't delete the branch you're currently on.
+Deleting a branch only removes the label — committed snapshots are never deleted. You can't delete the branch you're currently on. `dvault branch --show-current` prints just the current branch name (for shell prompts — see [Shell prompt](#shell-prompt)).
 
 ### `dvault switch <branch> [--force]`
 Moves to another branch and updates your working files to that branch's versions. Refuses to switch if you have uncommitted changes (so they aren't lost); `--force` discards them.
@@ -328,6 +328,48 @@ dvault switch q3-revisions      # work on it
 # ... edit report.docx, dvault commit -m "..."
 dvault switch main              # back to main
 dvault merge q3-revisions       # fold the work back in
+```
+
+## Shell prompt
+
+You can show the current dvault branch in your prompt, the same way shells show the git branch. `dvault branch --show-current` prints just the branch name (and nothing — no error — outside a vault), so it drops straight into a prompt hook.
+
+**bash** — add to `~/.bashrc`:
+```bash
+dvault_ps1() { local b; b=$(dvault branch --show-current 2>/dev/null); [ -n "$b" ] && printf ' (dv:%s)' "$b"; }
+PS1='\w$(dvault_ps1)\$ '
+```
+
+**zsh** — add to `~/.zshrc`:
+```zsh
+setopt PROMPT_SUBST
+dvault_ps1() { local b; b=$(dvault branch --show-current 2>/dev/null); [ -n "$b" ] && printf ' (dv:%s)' "$b"; }
+PROMPT='%~$(dvault_ps1)%# '
+```
+
+**Faster / Docker-friendly alternative.** The above runs `dvault` on every prompt. If dvault is slow to start for you — especially if you run it *via the Docker alias*, where each call spawns a container — use this pure-shell version instead. It reads `.dvault/HEAD` directly (walking up from any subdirectory), with no process spawn:
+```bash
+dvault_ps1() {
+  local d=$PWD ref
+  while :; do
+    if [ -r "$d/.dvault/HEAD" ]; then
+      IFS= read -r ref < "$d/.dvault/HEAD"
+      printf ' (dv:%s)' "${ref#ref: refs/heads/}"
+      return
+    fi
+    [ "$d" = "/" ] && return
+    d=${d%/*}; [ -z "$d" ] && d=/
+  done
+}
+```
+
+**[Starship](https://starship.rs/)** — add a custom module to `~/.config/starship.toml`:
+```toml
+[custom.dvault]
+command = "dvault branch --show-current"
+when = "dvault branch --show-current | grep -q ."
+format = "[ dv:$output]($style) "
+style = "purple"
 ```
 
 ## Collaboration
