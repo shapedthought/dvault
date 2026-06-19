@@ -9,9 +9,9 @@ use crate::db::Db;
 use crate::diff::use_color;
 use crate::extract::{ChangeKind, TrackedChange, tracked_changes};
 use crate::log::format_timestamp;
-use crate::store;
+use crate::revparse;
 use crate::vault::Vault;
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31m";
@@ -22,29 +22,7 @@ pub fn run(args: Vec<String>) -> Result<()> {
     let vault = Vault::discover()?;
     let db = Db::open(&vault.db_path())?;
 
-    let (rel, bytes) = match args.as_slice() {
-        [file] => {
-            let rel = vault.relativize(file)?;
-            let working = vault.working_path(&rel);
-            if !working.is_file() {
-                bail!("File not found: {file}");
-            }
-            let bytes = std::fs::read(&working)
-                .with_context(|| format!("could not read {}", working.display()))?;
-            (rel, bytes)
-        }
-        [commitish, file] => {
-            let rel = vault.relativize(file)?;
-            let commit_id = crate::revparse::resolve(&vault, &db, commitish)?;
-            let cf = db.get_commit_file(&commit_id, &rel)?.with_context(|| {
-                let short: String = commit_id.chars().take(crate::db::SHORT_HASH_LEN).collect();
-                format!("{rel} was not snapshotted in commit {short}")
-            })?;
-            let bytes = store::read_blob(&vault.objects_dir(), &cf.blob_hash, cf.compressed)?;
-            (rel, bytes)
-        }
-        _ => bail!("Usage: dvault changes <file>  OR  dvault changes <commit> <file>"),
-    };
+    let (rel, bytes) = revparse::file_bytes(&vault, &db, &args)?;
 
     let changes = tracked_changes(&rel, &bytes)?;
     if changes.is_empty() {

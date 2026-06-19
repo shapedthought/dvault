@@ -6,6 +6,7 @@
 
 mod add;
 mod branch;
+mod cat;
 mod changes;
 mod checkout;
 mod commit;
@@ -23,6 +24,7 @@ mod refs;
 mod remove;
 mod report;
 mod revparse;
+mod stats;
 mod status;
 mod store;
 mod switch;
@@ -90,7 +92,23 @@ enum Command {
     Diff {
         #[arg(required = true)]
         args: Vec<String>,
+        /// Show only a paragraph-level summary, not the full diff
+        #[arg(long)]
+        stat: bool,
     },
+
+    /// Print the readable text of a document version to stdout
+    ///
+    /// `dvault cat <file>` or `dvault cat <commit> <file>`.
+    Cat {
+        #[arg(required = true)]
+        args: Vec<String>,
+    },
+
+    /// Show word counts and growth over time
+    ///
+    /// `dvault stats <file>` for one file's history, or `dvault stats` for all.
+    Stats { file: Option<String> },
 
     /// List a document's pending Word tracked changes (revision marks)
     ///
@@ -192,7 +210,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
             all,
         } => log::run(file, tags, graph, all),
         Command::Status => status::run(),
-        Command::Diff { args } => diff::run(args),
+        Command::Diff { args, stat } => diff::run(args, stat),
+        Command::Cat { args } => cat::run(args),
+        Command::Stats { file } => stats::run(file),
         Command::Changes { args } => changes::run(args),
         Command::Report { args, format, out } => report::run(args, format, out),
         Command::Checkout {

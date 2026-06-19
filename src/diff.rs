@@ -20,18 +20,56 @@ pub(crate) struct Side {
     pub bytes: Vec<u8>,
 }
 
-pub fn run(args: Vec<String>) -> Result<()> {
+pub fn run(args: Vec<String>, stat: bool) -> Result<()> {
     let vault = Vault::discover()?;
     let db = Db::open(&vault.db_path())?;
 
     let (old, new, file_rel) = resolve_sides(&vault, &db, &args)?;
 
-    if can_diff(&file_rel) {
-        print_text_diff(&file_rel, &old, &new)?;
-    } else {
+    if !can_diff(&file_rel) {
         print_size_diff(&old, &new);
+    } else if stat {
+        print_stat(&file_rel, &old, &new)?;
+    } else {
+        print_text_diff(&file_rel, &old, &new)?;
     }
     Ok(())
+}
+
+/// Print a paragraph-level summary instead of the full diff.
+fn print_stat(file_rel: &str, old: &Side, new: &Side) -> Result<()> {
+    let old_text = joined_text(&extract_text(file_rel, &old.bytes)?);
+    let new_text = joined_text(&extract_text(file_rel, &new.bytes)?);
+    if old_text == new_text {
+        println!("No textual changes in {file_rel}.");
+        return Ok(());
+    }
+
+    let (changed, added, removed) = stat_counts(&old_text, &new_text);
+    println!("{file_rel}: {changed} changed, {added} added, {removed} removed (paragraphs)");
+    Ok(())
+}
+
+/// Paragraph-level change tallies between two texts: (changed, added, removed).
+/// A `Replace` op contributes `min` paragraphs as changed and the surplus on
+/// either side as added/removed.
+fn stat_counts(old_text: &str, new_text: &str) -> (usize, usize, usize) {
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let (mut changed, mut added, mut removed) = (0usize, 0usize, 0usize);
+    for op in diff.ops() {
+        let (ol, nl) = (op.old_range().len(), op.new_range().len());
+        match op.tag() {
+            similar::DiffTag::Equal => {}
+            similar::DiffTag::Insert => added += nl,
+            similar::DiffTag::Delete => removed += ol,
+            similar::DiffTag::Replace => {
+                changed += ol.min(nl);
+                added += nl.saturating_sub(ol);
+                removed += ol.saturating_sub(nl);
+            }
+        }
+    }
+    (changed, added, removed)
 }
 
 /// Resolve `diff`-style args into the two sides being compared and the
@@ -131,11 +169,21 @@ fn load_commit_side(
     })
 }
 
+/// Join extracted paragraph lines into a single text with a trailing newline,
+/// so the last line is terminated like the others — otherwise `similar` treats
+/// a change on the final paragraph as a spurious "replace" of the last line.
+pub(crate) fn joined_text(lines: &[String]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut s = lines.join("\n");
+    s.push('\n');
+    s
+}
+
 fn print_text_diff(file_rel: &str, old: &Side, new: &Side) -> Result<()> {
-    let old_lines = extract_text(file_rel, &old.bytes)?;
-    let new_lines = extract_text(file_rel, &new.bytes)?;
-    let old_text = old_lines.join("\n");
-    let new_text = new_lines.join("\n");
+    let old_text = joined_text(&extract_text(file_rel, &old.bytes)?);
+    let new_text = joined_text(&extract_text(file_rel, &new.bytes)?);
 
     if old_text == new_text {
         println!("No textual changes in {file_rel}.");
@@ -286,6 +334,16 @@ mod tests {
         assert!(out.contains("-two\n"));
         assert!(out.contains("+TWO\n"));
         assert!(out.contains(" one\n")); // context line, space-prefixed
+    }
+
+    #[test]
+    fn stat_counts_classify_add_remove_change() {
+        // Pure removal of the last paragraph (the trailing-newline regression).
+        assert_eq!(stat_counts("a\nb\nc\n", "a\nb\n"), (0, 0, 1));
+        // Pure addition.
+        assert_eq!(stat_counts("a\nb\n", "a\nb\nc\n"), (0, 1, 0));
+        // One paragraph changed in place.
+        assert_eq!(stat_counts("a\nb\nc\n", "a\nB\nc\n"), (1, 0, 0));
     }
 
     #[test]

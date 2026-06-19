@@ -166,7 +166,10 @@ mod tests {
             branches: vec!["draft".into()],
             tags: vec!["approved".into()],
         };
-        assert_eq!(format_deco(&deco, false), " (HEAD -> main, draft, tag: approved)");
+        assert_eq!(
+            format_deco(&deco, false),
+            " (HEAD -> main, draft, tag: approved)"
+        );
     }
 
     #[test]

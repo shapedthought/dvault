@@ -129,6 +129,34 @@ dvault diff b71d003 a3f9c12 report.docx
 ```
 Color is applied only when writing to a terminal; piped or redirected output stays plain text. Set `NO_COLOR=1` to disable it, or `CLICOLOR_FORCE=1` to keep color when piping (e.g. `dvault diff report.docx | less -R`).
 
+Add `--stat` for just a paragraph-level summary instead of the full diff:
+```sh
+dvault diff --stat report.docx
+# report.docx: 3 changed, 1 added, 0 removed (paragraphs)
+```
+
+### `dvault cat <file>` / `dvault cat <commit> <file>`
+Prints the extracted readable text of a document version to stdout — handy for a quick look or piping (e.g. into `grep` or `wc`).
+```sh
+dvault cat report.docx              # the working copy
+dvault cat approved report.docx     # a committed/tagged version
+```
+
+### `dvault stats [file]`
+Shows word counts and growth over time. With a file, lists the word count at each revision; without one, a one-line summary per tracked file.
+```sh
+dvault stats report.docx
+dvault stats
+```
+```
+Word count for report.docx (on main):
+
+  b71d003  2026-06-17 09:11    1,200 words
+  a3f9c12  2026-06-18 14:32    1,850 words  (+650)
+
+Grew from 1,200 to 1,850 words across 2 revisions.
+```
+
 ### `dvault changes <file>` / `dvault changes <commit> <file>`
 Lists a document's **pending Word tracked changes** (its `<w:ins>`/`<w:del>` revision marks), with the author and date Word recorded. This is distinct from `dvault diff`: `diff` compares two *snapshots*, while `changes` surfaces the unaccepted edits already inside a single document — handy for reviewing a doc someone sent back with Track Changes on.
 ```sh

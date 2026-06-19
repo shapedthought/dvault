@@ -33,8 +33,8 @@ pub fn run(args: Vec<String>, format: String, out: Option<String>) -> Result<()>
     }
     let fmt = parse_format(&format)?;
 
-    let old_text = extract_text(&file_rel, &old.bytes)?.join("\n");
-    let new_text = extract_text(&file_rel, &new.bytes)?.join("\n");
+    let old_text = diff::joined_text(&extract_text(&file_rel, &old.bytes)?);
+    let new_text = diff::joined_text(&extract_text(&file_rel, &new.bytes)?);
 
     let content = match fmt {
         Format::Html => render_html(&file_rel, &old.label, &new.label, &old_text, &new_text),
