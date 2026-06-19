@@ -304,6 +304,13 @@ Merged branch 'draft-rewrite' into main  [a91f3c2]
   report.docx  →  conflict, took theirs
 ```
 
+### `dvault lock` / `dvault unlock [--force]`
+Take or release the **advisory** lock for a shared/synced vault (see Collaboration below). While someone else holds it, `dvault commit` refuses unless you pass `--force`. `dvault status` shows the current holder.
+```sh
+dvault lock
+dvault unlock
+```
+
 ## Branching & merging in practice
 
 ```sh
@@ -313,6 +320,24 @@ dvault switch q3-revisions      # work on it
 dvault switch main              # back to main
 dvault merge q3-revisions       # fold the work back in
 ```
+
+## Collaboration
+
+dvault has no server. To work with others, **put the vault folder in a shared, synced location you already trust** — typically OneDrive or SharePoint, where the documents probably already live (so there's no new place for sensitive data to go). The cloud sync becomes the transport: one person commits, it syncs, the next person picks it up.
+
+Set your identity per machine so commits are attributed correctly without editing the shared vault config — via the environment or your global config (see `dvault config` above). A team can mix native and Docker users freely on the same vault.
+
+**Sequential handoff** (one editor at a time) is the sweet spot and works cleanly. For the occasional case where two people might edit at once, use the advisory lock:
+
+```sh
+dvault lock       # "I've got it" — others see it in `dvault status`
+# ... edit and commit ...
+dvault unlock     # hand it back
+```
+
+While a lock is held by someone else, `dvault commit` refuses (override with `--force`).
+
+**An honest caveat:** the lock is *advisory*, not enforced — a cloud-synced filesystem can't provide atomic locks. The blob store is append-only and safe under sync, but the commit database (`db.sqlite`) and branch refs are synced as whole files, so two people committing at the *exact same time* can create a "conflicted copy" and fork the history. For sequential handoff this never happens; the lock is there to coordinate the rare overlap. (A future option — storing commits as individual append-only files — would make true concurrency safe, but isn't needed for milestone workflows.)
 
 ## How it works
 

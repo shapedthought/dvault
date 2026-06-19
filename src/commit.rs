@@ -20,11 +20,24 @@ fn human_size(bytes: u64) -> String {
     }
 }
 
-pub fn run(message: String) -> Result<()> {
+pub fn run(message: String, force: bool) -> Result<()> {
     let vault = Vault::discover()?;
     let config = Config::load(&vault.config_path())?;
     let mut db = Db::open(&vault.db_path())?;
     let objects = vault.objects_dir();
+
+    let identity = crate::identity::resolve(&config)?;
+
+    // Advisory lock check: refuse if someone else holds the lock, unless forced.
+    if let Some(lock) = crate::lock::read(&vault)?
+        && lock.holder != identity.name
+        && !force
+    {
+        anyhow::bail!(
+            "Vault is locked {}.\nCommit anyway with --force, or coordinate (see 'dvault status').",
+            lock.describe()
+        );
+    }
 
     if config.tracked.files.is_empty() {
         println!("No files are tracked. Use 'dvault add <file>' first.");
@@ -77,7 +90,6 @@ pub fn run(message: String) -> Result<()> {
         return Ok(());
     }
 
-    let identity = crate::identity::resolve(&config)?;
     let commit = Commit {
         id: Uuid::new_v4().to_string(),
         created_at: Utc::now().to_rfc3339(),

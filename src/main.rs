@@ -19,6 +19,7 @@ mod extract;
 mod graph;
 mod identity;
 mod init;
+mod lock;
 mod log;
 mod merge;
 mod refs;
@@ -67,6 +68,9 @@ enum Command {
         /// Commit message
         #[arg(short, long)]
         message: String,
+        /// Commit even if another person holds the advisory lock
+        #[arg(long)]
+        force: bool,
     },
 
     /// Show commit history, optionally for a single file
@@ -202,6 +206,20 @@ enum Command {
         branch: String,
     },
 
+    /// Take the advisory lock (coordination for a shared/synced vault)
+    Lock {
+        /// Override a lock held by someone else
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Release the advisory lock
+    Unlock {
+        /// Remove a lock held by someone else
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Get or set identity (user.name, user.email)
     ///
     /// Without `--global`, a bare `dvault config user.name` reports the
@@ -222,7 +240,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Init => init::run(),
         Command::Add { files } => add::run(files),
         Command::Remove { file } => remove::run(file),
-        Command::Commit { message } => commit::run(message),
+        Command::Commit { message, force } => commit::run(message, force),
         Command::Log {
             file,
             tags,
@@ -254,6 +272,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         } => branch::run(name, delete, force),
         Command::Switch { branch, force } => switch::run(branch, force),
         Command::Merge { branch } => merge::run(branch),
+        Command::Lock { force } => lock::run_lock(force),
+        Command::Unlock { force } => lock::run_unlock(force),
         Command::Config { key, value, global } => config_cmd::run(key, value, global),
     }
 }

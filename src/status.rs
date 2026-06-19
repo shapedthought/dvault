@@ -17,6 +17,10 @@ pub fn run() -> Result<()> {
     let tip = refs::branch_tip(&vault, &branch)?;
     println!("On branch {branch}");
 
+    if let Some(lock) = crate::lock::read(&vault)? {
+        println!("Locked {}", lock.describe());
+    }
+
     if config.tracked.files.is_empty() {
         println!("No files are tracked. Use 'dvault add <file>' to start.");
         return Ok(());
