@@ -122,6 +122,35 @@ fn label_for(gc: &GraphCommit, deco: Option<&Deco>, color: bool) -> String {
     }
 }
 
+/// Decoration suffix for a single commit, e.g. ` (HEAD -> main, tag: approved)`.
+/// Empty if nothing points at it. Used by `show`.
+pub(crate) fn decoration_for(
+    vault: &Vault,
+    db: &Db,
+    commit_id: &str,
+    color: bool,
+) -> Result<String> {
+    let current = refs::current_branch(vault)?;
+    let mut deco = Deco::default();
+    for branch in refs::list_branches(vault)? {
+        if refs::branch_tip(vault, &branch)?.as_deref() == Some(commit_id) {
+            if branch == current {
+                deco.head_branch = Some(branch);
+            } else {
+                deco.branches.push(branch);
+            }
+        }
+    }
+    for (name, cid) in tag::all_tags(vault)? {
+        if cid == commit_id && db.get_commit(&cid).is_ok() {
+            deco.tags.push(name);
+        }
+    }
+    deco.branches.sort();
+    deco.tags.sort();
+    Ok(format_deco(&deco, color))
+}
+
 /// Format the ` (HEAD -> main, draft, tag: approved)` decoration suffix.
 fn format_deco(deco: &Deco, color: bool) -> String {
     let mut parts: Vec<String> = Vec::new();

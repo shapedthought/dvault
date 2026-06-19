@@ -400,6 +400,26 @@ impl Db {
         rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
     }
 
+    /// Parent commit ids of `commit_id` (0, 1, or 2 of them).
+    pub fn parents_of(&self, commit_id: &str) -> Result<Vec<String>> {
+        let (p1, p2): (Option<String>, Option<String>) = self.conn.query_row(
+            "SELECT parent_id, second_parent_id FROM commits WHERE id = ?1",
+            params![commit_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        Ok([p1, p2].into_iter().flatten().collect())
+    }
+
+    /// All file snapshots recorded in a single commit (the files it changed).
+    pub fn commit_files(&self, commit_id: &str) -> Result<Vec<CommitFile>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT file_path, blob_hash, file_size, compressed
+             FROM commit_files WHERE commit_id = ?1 ORDER BY file_path",
+        )?;
+        let rows = stmt.query_map(params![commit_id], Self::map_commit_file)?;
+        rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+    }
+
     /// The snapshot of `file` recorded in commit `commit_id`, if any.
     pub fn get_commit_file(&self, commit_id: &str, file: &str) -> Result<Option<CommitFile>> {
         let row = self

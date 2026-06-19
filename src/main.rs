@@ -24,6 +24,7 @@ mod refs;
 mod remove;
 mod report;
 mod revparse;
+mod show;
 mod stats;
 mod status;
 mod store;
@@ -109,6 +110,18 @@ enum Command {
     ///
     /// `dvault stats <file>` for one file's history, or `dvault stats` for all.
     Stats { file: Option<String> },
+
+    /// Show a commit's metadata and the files it changed
+    ///
+    /// Defaults to the current branch tip. With `--diff`, also shows the
+    /// readable diff of each changed file against its parent.
+    Show {
+        /// Commit hash or tag (defaults to the current branch tip)
+        reference: Option<String>,
+        /// Also show the readable diff of each changed file
+        #[arg(long)]
+        diff: bool,
+    },
 
     /// List a document's pending Word tracked changes (revision marks)
     ///
@@ -213,6 +226,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Diff { args, stat } => diff::run(args, stat),
         Command::Cat { args } => cat::run(args),
         Command::Stats { file } => stats::run(file),
+        Command::Show { reference, diff } => show::run(reference, diff),
         Command::Changes { args } => changes::run(args),
         Command::Report { args, format, out } => report::run(args, format, out),
         Command::Checkout {

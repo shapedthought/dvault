@@ -92,6 +92,23 @@ dvault commit -m "Board-approved version"
   proposal.docx  →  no changes, skipped
 ```
 
+### `dvault show [<commit>] [--diff]`
+Shows a commit's metadata (hash, author, date, message, ref decorations, and `Merge:` parents for merge commits) and the files it changed. Defaults to the current branch tip. Add `--diff` to also show the readable diff of each changed file against its parent. Accepts a tag.
+```sh
+dvault show                    # the latest commit
+dvault show approved --diff    # a tagged commit, with per-file diffs
+```
+```
+commit a3f9c12… (HEAD -> main, tag: approved)
+Author: Jane Smith <jane@example.com>
+Date:   2026-06-18 14:32
+
+    Revise revenue figure
+
+Files changed:
+  report.docx   43 KB
+```
+
 ### `dvault status`
 Lists tracked files and whether each is unchanged, modified, new (staged but never committed), or missing.
 
