@@ -77,12 +77,13 @@ pub fn run(message: String) -> Result<()> {
         return Ok(());
     }
 
+    let identity = crate::identity::resolve(&config)?;
     let commit = Commit {
         id: Uuid::new_v4().to_string(),
         created_at: Utc::now().to_rfc3339(),
         message: message.clone(),
-        author_name: config.author_name(),
-        author_email: config.author_email(),
+        author_name: identity.name,
+        author_email: identity.email,
     };
     db.insert_commit(&commit, parent.as_deref(), None, &snapshots)?;
     refs::set_branch_tip(&vault, &branch, &commit.id)?;

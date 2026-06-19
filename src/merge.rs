@@ -87,12 +87,13 @@ pub fn run(target: String) -> Result<()> {
     // parent); kept-ours files are already correct in the commit and on disk.
     let snapshots: Vec<CommitFile> = resolution.take_theirs.clone();
 
+    let identity = crate::identity::resolve(&config)?;
     let commit = Commit {
         id: Uuid::new_v4().to_string(),
         created_at: Utc::now().to_rfc3339(),
         message: format!("Merge branch '{target}' into {current}"),
-        author_name: config.author_name(),
-        author_email: config.author_email(),
+        author_name: identity.name,
+        author_email: identity.email,
     };
     db.insert_commit(&commit, Some(&ours_tip), Some(&theirs_tip), &snapshots)?;
     refs::set_branch_tip(&vault, &current, &commit.id)?;

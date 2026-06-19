@@ -62,14 +62,21 @@ dvault log                           # view history
 ### `dvault init`
 Creates a `.dvault/` vault in the current directory. Run this once per project folder.
 
-### `dvault config <key> [value]`
-Get or set your identity, stored per-vault. Without a value, prints the current setting.
+### `dvault config <key> [value]` / `--global`
+Get or set your identity. Identity is resolved with this precedence (highest first):
+
+1. **Environment** — `DVAULT_USER_NAME` / `DVAULT_USER_EMAIL`
+2. **Per-user global config** — `~/.config/dvault/config.toml` (or `$XDG_CONFIG_HOME/dvault/config.toml`)
+3. **Per-vault config** — `.dvault/config.toml`
+4. **OS username** (name only) as a last resort
+
 ```sh
-dvault config user.name "Jane Smith"
-dvault config user.email "jane@example.com"
-dvault config user.name                  # prints the current value
+dvault config user.name "Jane Smith"            # set in this vault
+dvault config --global user.name "Jane Smith"   # set once per machine
+dvault config user.name                         # prints the EFFECTIVE value and where it came from
 ```
-If unset, commits fall back to your OS username.
+
+This is what makes dvault usable by **multiple people on a shared/synced vault** and **inside a container**: each person sets their own identity via the environment or their global config, without ever editing the shared vault config. In a container, set `-e DVAULT_USER_NAME=… -e DVAULT_USER_EMAIL=…` (the env layer is highest precedence precisely so this works when the container's home directory and username aren't yours).
 
 ### `dvault add <file>...`
 Start tracking one or more files (like `git add`). Does **not** commit. Rejects unsupported file types (currently anything that isn't `.docx`).

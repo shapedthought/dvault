@@ -17,6 +17,7 @@ mod diff;
 mod export;
 mod extract;
 mod graph;
+mod identity;
 mod init;
 mod log;
 mod merge;
@@ -201,12 +202,18 @@ enum Command {
         branch: String,
     },
 
-    /// Get or set vault configuration (e.g. user.name, user.email)
+    /// Get or set identity (user.name, user.email)
+    ///
+    /// Without `--global`, a bare `dvault config user.name` reports the
+    /// *effective* identity and where it came from (env, global, vault, OS).
     Config {
         /// Config key, e.g. user.name
         key: String,
         /// New value; omit to read the current value
         value: Option<String>,
+        /// Operate on the per-user global config (~/.config/dvault/config.toml)
+        #[arg(long)]
+        global: bool,
     },
 }
 
@@ -247,7 +254,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         } => branch::run(name, delete, force),
         Command::Switch { branch, force } => switch::run(branch, force),
         Command::Merge { branch } => merge::run(branch),
-        Command::Config { key, value } => config_cmd::run(key, value),
+        Command::Config { key, value, global } => config_cmd::run(key, value, global),
     }
 }
 

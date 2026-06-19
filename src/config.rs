@@ -6,9 +6,11 @@ use std::path::Path;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "User::is_empty")]
     pub user: User,
-    #[serde(default)]
+    // Skipped when empty so the per-user global config file (which only carries
+    // identity) doesn't grow a spurious `[tracked]` section.
+    #[serde(default, skip_serializing_if = "Tracked::is_empty")]
     pub tracked: Tracked,
 }
 
@@ -20,10 +22,22 @@ pub struct User {
     pub email: Option<String>,
 }
 
+impl User {
+    fn is_empty(&self) -> bool {
+        self.name.is_none() && self.email.is_none()
+    }
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Tracked {
     #[serde(default)]
     pub files: Vec<String>,
+}
+
+impl Tracked {
+    fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
 }
 
 impl Config {
@@ -37,18 +51,6 @@ impl Config {
         let text = toml::to_string_pretty(self).context("could not serialize config")?;
         std::fs::write(path, text)
             .with_context(|| format!("could not write config: {}", path.display()))
-    }
-
-    /// Resolve the commit author name: configured value, else OS username.
-    pub fn author_name(&self) -> String {
-        self.user
-            .name
-            .clone()
-            .unwrap_or_else(|| whoami::username().unwrap_or_else(|_| "unknown".into()))
-    }
-
-    pub fn author_email(&self) -> Option<String> {
-        self.user.email.clone()
     }
 
     pub fn is_tracked(&self, rel: &str) -> bool {
