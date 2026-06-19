@@ -1,4 +1,4 @@
-//! dvault — Git-like version control for Office documents.
+//! dvault — Git-like version control for Word documents.
 //!
 //! `main` is a thin clap dispatcher; each subcommand lives in its own module.
 //! Errors bubble up as `anyhow::Error` and are printed to stderr with a
@@ -41,7 +41,7 @@ use std::process::ExitCode;
 #[command(
     name = "dvault",
     version,
-    about = "Git-like version control for Office documents"
+    about = "Git-like version control for Word documents"
 )]
 struct Cli {
     #[command(subcommand)]

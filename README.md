@@ -13,6 +13,15 @@ Git-like version control for Word documents — without Git, and without needing
 +Revenue for Q3 was $4.8M.
 ```
 
+**What you get:**
+
+- **Readable, content-level diffs** of `.docx` — across the body *and* headers, footers, footnotes, and comments — with the specific changed words highlighted
+- **Milestone history**: snapshots, `log` (with a `--graph`), `show`, word-count `stats`, and `tag`s you can use anywhere a commit is expected
+- **Branching and merging** (whole-file conflict resolution — you pick a side)
+- Surface Word's own **tracked changes**, and generate shareable **HTML / Markdown** diff reports
+- **Multi-person collaboration** over a shared/synced folder — per-machine identity and an advisory lock, no server
+- Runs as a **single binary or a Docker container** — no cloud, no Git, no install required
+
 ## Focus
 
 `dvault` is **built for Word `.docx` documents** — that focus is deliberate, not a limitation on the way to something else. Word is where readable, content-level diffs shine: the body text lives in a structured XML part we can extract cleanly, so a one-line edit shows as a one-line change instead of an opaque binary blob.
@@ -343,23 +352,27 @@ While a lock is held by someone else, `dvault commit` refuses (override with `--
 
 - **Commit hashes** are abbreviated to 7 characters in output, and any unique prefix is accepted wherever a commit is expected. **Tag names** work in those places too (and take precedence over hash prefixes).
 - **Snapshots** are stored content-addressed in `.dvault/objects/` (deduplicated by SHA-256), with metadata in a local SQLite database. Files over 100 KB are compressed.
+- **Identity** is resolved from environment → per-user global config → vault config → OS username, so shared/synced vaults and containers attribute commits to the right person.
 - Everything lives in the `.dvault/` directory in your project — no cloud, no external services, no Git.
 
 ## Vault layout
 
 ```
 .dvault/
-  config.toml          # tracked files + your identity
+  config.toml          # tracked files + (optional) per-vault identity
   db.sqlite            # commit history (a DAG) and file→snapshot mappings
   objects/             # content-addressed snapshots
   HEAD                 # the branch you're on
   refs/heads/          # one file per branch (its tip commit)
   refs/tags/           # one file per tag
+  lock                 # present only while the advisory lock is held
 ```
+
+Per-user identity (when set with `dvault config --global`) lives outside the vault at `~/.config/dvault/config.toml`.
 
 ## Scope
 
-Intentionally **not** included: other file formats (Word `.docx` only, by design), remotes/sync (`push`/`pull`), rename tracking, and auto-commit-on-save. Merging is **whole-file** (you pick a side on conflict), not a content-level blend — an intentional choice for binary `.docx` files.
+Intentionally **not** included: other file formats (Word `.docx` only, by design); a sync server or `push`/`pull` — collaboration is via a shared, cloud-synced folder plus an advisory lock instead (see [Collaboration](#collaboration)); rename tracking; and auto-commit-on-save (it would fight the deliberate *milestone* model). Merging is **whole-file** (you pick a side on conflict), not a content-level blend — an intentional choice for binary `.docx` files.
 
 ## Development
 
