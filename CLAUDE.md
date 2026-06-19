@@ -62,4 +62,6 @@ Each `dvault` subcommand maps to its own module in `src/` (`init.rs`, `add.rs`, 
 
 Edition 2024. clap 4 (derive), serde 1, toml 1, rusqlite 0.37 (bundled), sha2 0.11, hex, uuid 1 (v4), zip 8, quick-xml 0.40, chrono 0.4, anyhow 1, similar 3, flate2, whoami 2. These are newer than the PRD's suggested pins and several APIs differ from the PRD examples (e.g. `whoami::username()` returns `Result`; quick-xml uses `decode()` + `GeneralRef` rather than `unescape()`).
 
+**Docker.** A `Dockerfile` (multi-stage: `rust:1-bookworm` build → `debian:bookworm-slim` runtime) packages dvault as a container so it can run without installing a binary, against a bind-mounted vault. The binary statically bundles SQLite, so the runtime base needs no libsqlite3. Run as the host user (`-u $(id -u):$(id -g)`) to avoid root-owned files in the (often synced) vault, and `-it` for interactive prompts. Native and container are verified to produce byte-identical results against the same vault.
+
 **`rusqlite` is pinned to 0.37 deliberately.** 0.38+ pulls `libsqlite3-sys` 0.38, whose build script uses the unstable `cfg_select!` feature and fails to compile on the current stable toolchain. Do not bump it without confirming `libsqlite3-sys` builds.

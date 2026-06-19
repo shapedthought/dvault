@@ -39,6 +39,39 @@ Verify:
 dvault --help
 ```
 
+## Running with Docker
+
+If you can't install binaries (e.g. company policy), run dvault as a container instead. It works identically to the native binary against a bind-mounted vault folder — including one that's OneDrive/SharePoint-synced.
+
+```sh
+docker build -t dvault .
+```
+
+Then add a shell alias so it feels native:
+
+```sh
+alias dvault='docker run --rm -it \
+  -v "$PWD":/work -w /work \
+  -u "$(id -u):$(id -g)" \
+  -e DVAULT_USER_NAME -e DVAULT_USER_EMAIL \
+  dvault'
+```
+
+…and set your identity once in your shell profile (this is how the container knows who you are — see the config precedence below):
+
+```sh
+export DVAULT_USER_NAME="Jane Smith"
+export DVAULT_USER_EMAIL="jane@company.com"
+```
+
+Now `dvault status`, `dvault commit -m "…"`, etc. work as usual. Why those flags:
+
+- **`-u "$(id -u):$(id -g)"`** — run as *you*, so files written into the (possibly synced) vault are owned by you, not `root`.
+- **`-it`** — keeps stdin/TTY for the interactive prompts (`checkout` confirm, `merge` conflict resolution) and enables color. Without a TTY, color turns off (use `CLICOLOR_FORCE=1` to force it) and prompts safely default to "no".
+- Mount the folder that **contains** `.dvault/` — vault discovery walks upward and can't climb above the mount point.
+
+A team can mix freely: some people on the native binary, others via this image, all against the same synced vault.
+
 ## Quick start
 
 ```sh
