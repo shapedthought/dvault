@@ -81,6 +81,30 @@ Now `dvault status`, `dvault commit -m "…"`, etc. work as usual. Why those fla
 
 A team can mix freely: some people on the native binary, others via this image, all against the same synced vault.
 
+## Web UI
+
+For a point-and-click view — and for collaborators who'd rather not touch the command line — run the built-in web UI:
+
+```sh
+dvault serve            # then open http://127.0.0.1:8080
+dvault serve --port 9000
+```
+
+It's a small local server (no cloud, no external assets) that lets you:
+- browse tracked files and their status, and the commit history;
+- view rich **diffs between any two versions** in the browser (the same section-headed, word-highlighted rendering as `dvault report`);
+- **commit** current changes, **restore** (checkout) a version, and **tag** a commit.
+
+By default it binds to **localhost only**. To run it inside the Docker container, bind to all interfaces and map the port host-locally so it isn't exposed to your network:
+
+```sh
+docker run --rm -it -u "$(id -u):$(id -g)" \
+  -v "$PWD":/work -w /work -e DVAULT_USER_NAME -e DVAULT_USER_EMAIL \
+  -p 127.0.0.1:8080:8080 dvault serve --host 0.0.0.0
+```
+
+It has no authentication, so only expose it somewhere you trust (your own machine, or a private network you control).
+
 ## Quick start
 
 ```sh

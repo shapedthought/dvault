@@ -28,6 +28,7 @@ mod refs;
 mod remove;
 mod report;
 mod revparse;
+mod serve;
 mod show;
 mod stats;
 mod status;
@@ -257,6 +258,18 @@ enum Command {
         force: bool,
     },
 
+    /// Start a local web UI for browsing history and reviewing diffs
+    ///
+    /// Binds to localhost by default; use --host 0.0.0.0 for Docker.
+    Serve {
+        /// Address to bind (use 0.0.0.0 in a container)
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to listen on
+        #[arg(long, default_value_t = 8080)]
+        port: u16,
+    },
+
     /// Get or set identity (user.name, user.email)
     ///
     /// Without `--global`, a bare `dvault config user.name` reports the
@@ -313,6 +326,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Merge { branch } => merge::run(branch),
         Command::Handoff { file, to, cancel } => handoff::run_handoff(file, to, cancel),
         Command::Receive { slip, file, force } => handoff::run_receive(slip, file, force),
+        Command::Serve { host, port } => serve::run(host, port),
         Command::Lock { force } => lock::run_lock(force),
         Command::Unlock { force } => lock::run_unlock(force),
         Command::Config { key, value, global } => config_cmd::run(key, value, global),

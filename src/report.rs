@@ -73,42 +73,25 @@ fn default_out(file_rel: &str, fmt: &Format) -> PathBuf {
     PathBuf::from(format!("{stem}-diff.{ext}"))
 }
 
-/// Count line-level insertions and deletions for the report summary.
-fn counts(old_text: &str, new_text: &str) -> (usize, usize) {
-    let diff = TextDiff::from_lines(old_text, new_text);
-    let mut ins = 0;
-    let mut del = 0;
-    for change in diff.iter_all_changes() {
-        match change.tag() {
-            ChangeTag::Insert => ins += 1,
-            ChangeTag::Delete => del += 1,
-            ChangeTag::Equal => {}
-        }
-    }
-    (ins, del)
-}
+/// CSS for the diff block — shared by the HTML report and the web UI.
+pub(crate) const DIFF_CSS: &str = r#"
+  .diff { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem;
+          border: 1px solid #ddd; border-radius: 6px; overflow: hidden; white-space: pre-wrap; }
+  .row { padding: .1rem .6rem; }
+  .row .s { display: inline-block; width: 1ch; color: #999; user-select: none; }
+  .ctx { color: #444; }
+  .del { background: #fbe9e7; } .ins { background: #e6f4ea; }
+  .del .w { background: #f4b9b1; border-radius: 2px; }
+  .ins .w { background: #a8e0bb; border-radius: 2px; }
+  .section { color: #555; font-weight: 600; padding: .3rem .6rem; background: #f3f3f3; border-top: 1px solid #e5e5e5; }
+  .gap { text-align: center; color: #bbb; padding: .2rem; }
+"#;
 
-fn plural(n: usize, word: &str) -> String {
-    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
-}
-
-fn esc(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-fn render_html(
-    file_rel: &str,
-    old_label: &str,
-    new_label: &str,
-    old: &[Line],
-    new: &[Line],
-) -> String {
+/// Build the inner rows of the diff block (section banners, context, +/- lines
+/// with inline word highlighting). Shared by the report and the web UI.
+pub(crate) fn diff_body_html(old: &[Line], new: &[Line]) -> String {
     let old_text = diff::join_lines(old);
     let new_text = diff::join_lines(new);
-    let (ins, del) = counts(&old_text, &new_text);
     let diff_obj = TextDiff::from_lines(&old_text, &new_text);
 
     let mut body = String::new();
@@ -147,6 +130,44 @@ fn render_html(
             }
         }
     }
+    body
+}
+
+/// Count line-level insertions and deletions for the report summary.
+pub(crate) fn counts(old_text: &str, new_text: &str) -> (usize, usize) {
+    let diff = TextDiff::from_lines(old_text, new_text);
+    let mut ins = 0;
+    let mut del = 0;
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Insert => ins += 1,
+            ChangeTag::Delete => del += 1,
+            ChangeTag::Equal => {}
+        }
+    }
+    (ins, del)
+}
+
+fn plural(n: usize, word: &str) -> String {
+    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
+}
+
+pub(crate) fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn render_html(
+    file_rel: &str,
+    old_label: &str,
+    new_label: &str,
+    old: &[Line],
+    new: &[Line],
+) -> String {
+    let (ins, del) = counts(&diff::join_lines(old), &diff::join_lines(new));
+    let body = diff_body_html(old, new);
 
     format!(
         r#"<!doctype html>
@@ -162,16 +183,7 @@ fn render_html(
   .meta code {{ background: #f0f0f0; padding: .1rem .3rem; border-radius: 3px; }}
   .summary {{ font-weight: 600; margin: .5rem 0 1.5rem; }}
   .summary .ins {{ color: #137333; }} .summary .del {{ color: #b3261e; }}
-  .diff {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem;
-           border: 1px solid #ddd; border-radius: 6px; overflow: hidden; white-space: pre-wrap; }}
-  .row {{ padding: .1rem .6rem; }}
-  .row .s {{ display: inline-block; width: 1ch; color: #999; user-select: none; }}
-  .ctx {{ color: #444; }}
-  .del {{ background: #fbe9e7; }} .ins {{ background: #e6f4ea; }}
-  .del .w {{ background: #f4b9b1; border-radius: 2px; }}
-  .ins .w {{ background: #a8e0bb; border-radius: 2px; }}
-  .section {{ color: #555; font-weight: 600; padding: .3rem .6rem; background: #f3f3f3; border-top: 1px solid #e5e5e5; }}
-  .gap {{ text-align: center; color: #bbb; padding: .2rem; }}
+{diff_css}
   footer {{ margin-top: 1.5rem; color: #999; font-size: .8rem; }}
 </style>
 </head>
@@ -190,6 +202,7 @@ fn render_html(
         new = esc(new_label),
         ins_s = plural(ins, "insertion"),
         del_s = plural(del, "deletion"),
+        diff_css = DIFF_CSS,
         body = body,
     )
 }
