@@ -17,6 +17,7 @@ mod diff;
 mod export;
 mod extract;
 mod graph;
+mod handoff;
 mod identity;
 mod init;
 mod lock;
@@ -209,6 +210,30 @@ enum Command {
         branch: String,
     },
 
+    /// Hand a document to someone without a shared vault (writes a JSON slip)
+    ///
+    /// Email them the document + the `.handoff.json` slip; `receive` it back.
+    Handoff {
+        file: String,
+        /// Who you're handing it to
+        #[arg(long)]
+        to: Option<String>,
+        /// Cancel an outstanding handoff instead of creating one
+        #[arg(long)]
+        cancel: bool,
+    },
+
+    /// Receive an edited document back using its handoff slip
+    Receive {
+        /// The `.handoff.json` slip
+        slip: String,
+        /// The edited document file
+        file: String,
+        /// Commit even if the document changed locally since handoff
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Take the advisory lock (coordination for a shared/synced vault)
     Lock {
         /// Override a lock held by someone else
@@ -276,6 +301,8 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         } => branch::run(name, delete, force, show_current),
         Command::Switch { branch, force } => switch::run(branch, force),
         Command::Merge { branch } => merge::run(branch),
+        Command::Handoff { file, to, cancel } => handoff::run_handoff(file, to, cancel),
+        Command::Receive { slip, file, force } => handoff::run_receive(slip, file, force),
         Command::Lock { force } => lock::run_lock(force),
         Command::Unlock { force } => lock::run_unlock(force),
         Command::Config { key, value, global } => config_cmd::run(key, value, global),

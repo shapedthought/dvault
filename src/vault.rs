@@ -55,6 +55,11 @@ impl Vault {
         self.dir.join("refs").join("tags")
     }
 
+    /// Where outstanding "out for edit" handoff records are tracked.
+    pub fn handoffs_dir(&self) -> PathBuf {
+        self.dir.join("handoffs")
+    }
+
     /// Resolve a tracked-file path (stored relative to `root`) to an absolute
     /// working-copy path.
     pub fn working_path(&self, rel: &str) -> PathBuf {

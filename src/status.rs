@@ -29,6 +29,13 @@ pub fn run() -> Result<()> {
     println!("Tracked files:");
     for rel in &config.tracked.files {
         let working = vault.working_path(rel);
+
+        // A file that's out for edit takes priority in the listing.
+        if let Some(h) = crate::handoff::outstanding(&vault, rel)? {
+            println!("  {rel:<28} {}", h.describe());
+            continue;
+        }
+
         let last = match &tip {
             Some(t) => db.file_at_commit(t, rel)?,
             None => None,

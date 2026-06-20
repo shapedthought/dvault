@@ -320,6 +320,15 @@ dvault lock
 dvault unlock
 ```
 
+### `dvault handoff <file> --to "Name"` / `dvault receive <slip> <file>`
+Hand a document to someone who **doesn't share your vault** (see Collaboration). `handoff` writes a small `*.handoff.json` slip and marks the file "out for edit"; you email them the document + the slip. `receive` takes the edited file back and commits it **attributed to the recipient** — they never need dvault.
+```sh
+dvault handoff report.docx --to "Bob Smith"   # email report.docx + report.handoff.json
+# ... Bob edits in Word and emails the file back ...
+dvault receive report.handoff.json from-bob.docx
+dvault handoff report.docx --cancel           # if it never comes back
+```
+
 ## Branching & merging in practice
 
 ```sh
@@ -389,6 +398,20 @@ dvault unlock     # hand it back
 While a lock is held by someone else, `dvault commit` refuses (override with `--force`).
 
 **An honest caveat:** the lock is *advisory*, not enforced — a cloud-synced filesystem can't provide atomic locks. The blob store is append-only and safe under sync, but the commit database (`db.sqlite`) and branch refs are synced as whole files, so two people committing at the *exact same time* can create a "conflicted copy" and fork the history. For sequential handoff this never happens; the lock is there to coordinate the rare overlap. (A future option — storing commits as individual append-only files — would make true concurrency safe, but isn't needed for milestone workflows.)
+
+### Handing off to someone without a shared vault
+
+When a collaborator is external (or just doesn't have access to your synced folder), use a **handoff slip**. It travels with the document by email and makes the round trip safe and attributed — the recipient only needs Word:
+
+```sh
+dvault handoff report.docx --to "Bob Smith"
+# → email report.docx and report.handoff.json to Bob
+# ... Bob edits in Word, emails the file back ...
+dvault receive report.handoff.json from-bob.docx
+# → commits Bob's edits, authored by Bob
+```
+
+The slip records which committed version the document was based on, so `receive` will **stop you** if the document changed locally while it was out (rather than silently clobbering) — re-run with `--force` to commit the returned file on top. While a document is out, `dvault status` shows it as *out for edit*, and `dvault handoff <file> --cancel` clears it if it never comes back.
 
 ## How it works
 
