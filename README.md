@@ -201,6 +201,13 @@ dvault diff --stat report.docx
 # report.docx: 3 changed, 1 added, 0 removed (paragraphs)
 ```
 
+### `dvault compare <old.docx> <new.docx>`
+Readable diff between **two loose files on disk** — **no vault, no `init`, no commit**. For the "Save As" reality: when you have a pile of near-identical version files (`report_v1.docx`, `report_v2.docx`) and just want to see what changed between two of them. Same colored, inline-highlighted output as `dvault diff`.
+```sh
+dvault compare report_v1.docx report_v2.docx
+```
+(If you find yourself doing this often, consider tracking *one* file and committing milestones instead — then `dvault log` and `dvault diff` give you the whole version history.)
+
 ### `dvault cat <file>` / `dvault cat <commit> <file>`
 Prints the extracted readable text of a document version to stdout — handy for a quick look or piping (e.g. into `grep` or `wc`).
 ```sh

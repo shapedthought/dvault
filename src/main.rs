@@ -10,6 +10,7 @@ mod cat;
 mod changes;
 mod checkout;
 mod commit;
+mod compare;
 mod config;
 mod config_cmd;
 mod db;
@@ -110,6 +111,14 @@ enum Command {
     Cat {
         #[arg(required = true)]
         args: Vec<String>,
+    },
+
+    /// Readable diff between two loose .docx files on disk (no vault needed)
+    Compare {
+        /// The older/base document
+        old: String,
+        /// The newer document
+        new: String,
     },
 
     /// Show word counts and growth over time
@@ -278,6 +287,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         Command::Status => status::run(),
         Command::Diff { args, stat } => diff::run(args, stat),
         Command::Cat { args } => cat::run(args),
+        Command::Compare { old, new } => compare::run(old, new),
         Command::Stats { file } => stats::run(file),
         Command::Show { reference, diff } => show::run(reference, diff),
         Command::Changes { args } => changes::run(args),
