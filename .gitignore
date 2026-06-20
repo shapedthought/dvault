@@ -5,3 +5,7 @@
 
 # Local test fixtures (may contain personal data)
 *.docx
+
+# Build-time artifacts kept locally, not in the shared repo
+CLAUDE.md
+docvault-PRD.md
