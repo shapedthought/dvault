@@ -15,6 +15,7 @@
 //! runs (e.g. table-cell label/value pairs) don't get glued into run-on words
 //! like "EnglishNative".
 
+use super::Line;
 use anyhow::{Context, Result, bail};
 use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
@@ -25,6 +26,12 @@ type Archive = zip::ZipArchive<Cursor<Vec<u8>>>;
 /// Extract the readable text of a `.docx`, one line per non-empty paragraph,
 /// across the body and all supporting regions.
 pub fn extract(bytes: &[u8]) -> Result<Vec<String>> {
+    Ok(extract_lines(bytes)?.into_iter().map(|l| l.text).collect())
+}
+
+/// Like [`extract`], but each line carries whether it's a section marker (a
+/// Word heading paragraph, or a `[Header]`/`[Footnotes]` region banner).
+pub fn extract_lines(bytes: &[u8]) -> Result<Vec<Line>> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes.to_vec()))
         .context("file is not a valid .docx (zip) archive")?;
     let names: Vec<String> = archive.file_names().map(|s| s.to_string()).collect();
@@ -94,7 +101,7 @@ fn read_entry(archive: &mut Archive, name: &str) -> Result<Vec<u8>> {
 }
 
 /// Parse and concatenate the paragraphs of several parts.
-fn read_and_parse(archive: &mut Archive, files: &[String]) -> Result<Vec<String>> {
+fn read_and_parse(archive: &mut Archive, files: &[String]) -> Result<Vec<Line>> {
     let mut lines = Vec::new();
     for f in files {
         lines.extend(parse_paragraphs(&read_entry(archive, f)?)?);
@@ -102,13 +109,23 @@ fn read_and_parse(archive: &mut Archive, files: &[String]) -> Result<Vec<String>
     Ok(lines)
 }
 
-/// Append a labeled section if it has any content.
-fn append_section(lines: &mut Vec<String>, label: &str, section: Vec<String>) {
+/// Append a labeled section (its banner counts as a section marker).
+fn append_section(lines: &mut Vec<Line>, label: &str, section: Vec<Line>) {
     if section.is_empty() {
         return;
     }
-    lines.push(format!("[{label}]"));
+    lines.push(Line {
+        text: format!("[{label}]"),
+        heading: true,
+    });
     lines.extend(section);
+}
+
+/// Whether a paragraph-style id denotes a heading (`Heading1`…`Heading9`,
+/// `Title`, `Subtitle`). Matches Word's built-in heading styles.
+fn is_heading_style(val: &str) -> bool {
+    let v = val.to_ascii_lowercase();
+    v.starts_with("heading") || v == "title" || v == "subtitle"
 }
 
 /// The five predefined XML entities.
@@ -123,16 +140,19 @@ fn predefined_entity(name: &str) -> Option<char> {
     }
 }
 
-/// Walk a WordprocessingML part and return one line per non-empty paragraph.
-fn parse_paragraphs(xml: &[u8]) -> Result<Vec<String>> {
+/// Walk a WordprocessingML part and return one line per non-empty paragraph,
+/// flagging paragraphs that carry a heading style.
+fn parse_paragraphs(xml: &[u8]) -> Result<Vec<Line>> {
     let mut reader = Reader::from_reader(xml);
     let config = reader.config_mut();
     config.trim_text(false);
 
-    let mut lines: Vec<String> = Vec::new();
+    let mut lines: Vec<Line> = Vec::new();
     let mut current = String::new();
     // True while we are inside a <w:t> element and should capture text events.
     let mut in_text = false;
+    // Whether the current paragraph has a heading style (set from <w:pStyle>).
+    let mut heading = false;
     let mut buf = Vec::new();
 
     loop {
@@ -141,14 +161,27 @@ fn parse_paragraphs(xml: &[u8]) -> Result<Vec<String>> {
             .context("malformed XML in a .docx part")?
         {
             Event::Start(e) if e.name().as_ref() == b"w:t" => in_text = true,
+            // <w:pStyle w:val="Heading1"/> appears (as an empty element) in the
+            // paragraph's <w:pPr>, before its runs.
+            Event::Empty(e) | Event::Start(e) if e.name().as_ref() == b"w:pStyle" => {
+                if let Some(val) = style_val(&e)?
+                    && is_heading_style(&val)
+                {
+                    heading = true;
+                }
+            }
             Event::End(e) => match e.name().as_ref() {
                 b"w:t" => in_text = false,
                 b"w:p" => {
                     let line = current.trim().to_string();
                     if !line.is_empty() {
-                        lines.push(line);
+                        lines.push(Line {
+                            text: line,
+                            heading,
+                        });
                     }
                     current.clear();
+                    heading = false;
                 }
                 _ => {}
             },
@@ -184,10 +217,24 @@ fn parse_paragraphs(xml: &[u8]) -> Result<Vec<String>> {
     // Flush a trailing paragraph that wasn't closed (defensive).
     let tail = current.trim();
     if !tail.is_empty() {
-        lines.push(tail.to_string());
+        lines.push(Line {
+            text: tail.to_string(),
+            heading,
+        });
     }
 
     Ok(lines)
+}
+
+/// Read the `w:val` attribute of a `<w:pStyle>` element.
+fn style_val(e: &BytesStart) -> Result<Option<String>> {
+    for attr in e.attributes() {
+        let attr = attr.context("malformed attribute on w:pStyle")?;
+        if attr.key.as_ref() == b"w:val" {
+            return Ok(Some(String::from_utf8_lossy(&attr.value).into_owned()));
+        }
+    }
+    Ok(None)
 }
 
 /// A Word tracked change (revision mark) embedded in a document: an insertion
@@ -472,6 +519,23 @@ mod tests {
         // No extra parts → output is exactly the body, no banners.
         let docx = make_docx(&para("Just the body"));
         assert_eq!(extract(&docx).unwrap(), vec!["Just the body"]);
+    }
+
+    #[test]
+    fn detects_heading_paragraphs() {
+        let body = format!(
+            "{}{}",
+            r#"<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Q3 Results</w:t></w:r></w:p>"#,
+            para("Revenue was 4.2M"),
+        );
+        let lines = extract_lines(&make_docx(&body)).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "Q3 Results");
+        assert!(
+            lines[0].heading,
+            "heading-styled paragraph should be flagged"
+        );
+        assert!(!lines[1].heading, "body paragraph should not be a heading");
     }
 
     #[test]

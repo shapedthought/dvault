@@ -7,7 +7,7 @@
 //! For formats without an extractor we fall back to a size-delta summary.
 
 use crate::db::{Db, SHORT_HASH_LEN};
-use crate::extract::{can_diff, extract_text};
+use crate::extract::{Line, can_diff, extract_lines, extract_text};
 use crate::refs;
 use crate::store;
 use crate::vault::Vault;
@@ -182,19 +182,66 @@ pub(crate) fn joined_text(lines: &[String]) -> String {
 }
 
 fn print_text_diff(file_rel: &str, old: &Side, new: &Side) -> Result<()> {
-    let old_text = joined_text(&extract_text(file_rel, &old.bytes)?);
-    let new_text = joined_text(&extract_text(file_rel, &new.bytes)?);
+    let old_lines = extract_lines(file_rel, &old.bytes)?;
+    let new_lines = extract_lines(file_rel, &new.bytes)?;
 
-    if old_text == new_text {
+    if join_lines(&old_lines) == join_lines(&new_lines) {
         println!("No textual changes in {file_rel}.");
         return Ok(());
     }
 
     print!(
         "{}",
-        render(&old.label, &new.label, &old_text, &new_text, use_color())
+        render(&old.label, &new.label, &old_lines, &new_lines, use_color())
     );
     Ok(())
+}
+
+/// Join `Line` texts into a single string with a trailing newline (see
+/// `joined_text`).
+pub(crate) fn join_lines(lines: &[Line]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut s = String::with_capacity(lines.iter().map(|l| l.text.len() + 1).sum());
+    for (i, l) in lines.iter().enumerate() {
+        if i > 0 {
+            s.push('\n');
+        }
+        s.push_str(&l.text);
+    }
+    s.push('\n');
+    s
+}
+
+/// The nearest section heading at or above line `start` (None if there's no
+/// heading above it).
+fn nearest_heading(lines: &[Line], start: usize) -> Option<String> {
+    if lines.is_empty() {
+        return None;
+    }
+    let i = start.min(lines.len() - 1);
+    lines[..=i]
+        .iter()
+        .rev()
+        .find(|l| l.heading)
+        .map(|l| l.text.clone())
+}
+
+/// Heading context for a hunk — prefer the new side; fall back to the old side
+/// (e.g. a pure deletion).
+pub(crate) fn hunk_heading(new: &[Line], ns: usize, old: &[Line], os: usize) -> Option<String> {
+    nearest_heading(new, ns).or_else(|| nearest_heading(old, os))
+}
+
+/// (old, new) line index of the first *actual* change in a hunk, skipping the
+/// leading context lines — so the heading reflects where the change is, not
+/// where the context-padded hunk starts.
+pub(crate) fn first_change(group: &[similar::DiffOp]) -> Option<(usize, usize)> {
+    group
+        .iter()
+        .find(|op| op.tag() != similar::DiffTag::Equal)
+        .map(|op| (op.old_range().start, op.new_range().start))
 }
 
 // ANSI styling for diff output — the familiar `git diff` palette. Changed words
@@ -227,13 +274,15 @@ pub fn use_color() -> bool {
 pub(crate) fn render(
     old_label: &str,
     new_label: &str,
-    old_text: &str,
-    new_text: &str,
+    old: &[Line],
+    new: &[Line],
     color: bool,
 ) -> String {
     use similar::ChangeTag;
 
-    let diff = TextDiff::from_lines(old_text, new_text);
+    let old_text = join_lines(old);
+    let new_text = join_lines(new);
+    let diff = TextDiff::from_lines(&old_text, &new_text);
     let mut out = String::new();
 
     if color {
@@ -248,7 +297,13 @@ pub(crate) fn render(
         let last = group.last().unwrap();
         let (os, oe) = (first.old_range().start, last.old_range().end);
         let (ns, ne) = (first.new_range().start, last.new_range().end);
-        let header = format!("@@ -{},{} +{},{} @@", os + 1, oe - os, ns + 1, ne - ns);
+        // Annotate the hunk with the nearest heading above the *change* (git's
+        // function-context), not above the context-padded hunk start.
+        let (cos, cns) = first_change(&group).unwrap_or((os, ns));
+        let header = match hunk_heading(new, cns, old, cos) {
+            Some(h) => format!("@@ -{},{} +{},{} @@  {h}", os + 1, oe - os, ns + 1, ne - ns),
+            None => format!("@@ -{},{} +{},{} @@", os + 1, oe - os, ns + 1, ne - ns),
+        };
         if color {
             out.push_str(&format!("{CYAN}{header}{RESET}\n"));
         } else {
@@ -303,6 +358,23 @@ fn print_size_diff(old: &Side, new: &Side) {
 mod tests {
     use super::*;
 
+    /// Build diff `Line`s from text, marking lines that start with `#` as
+    /// headings (test-only shorthand).
+    fn lines(s: &str) -> Vec<Line> {
+        s.lines()
+            .map(|l| match l.strip_prefix('#') {
+                Some(rest) => Line {
+                    text: rest.trim().to_string(),
+                    heading: true,
+                },
+                None => Line {
+                    text: l.to_string(),
+                    heading: false,
+                },
+            })
+            .collect()
+    }
+
     /// Strip all ANSI SGR codes so we can assert on the underlying text.
     fn strip_ansi(s: &str) -> String {
         let mut out = String::new();
@@ -324,7 +396,13 @@ mod tests {
 
     #[test]
     fn plain_render_has_no_escape_codes_and_is_unified() {
-        let out = render("a (111)", "b (222)", "one\ntwo\n", "one\nTWO\n", false);
+        let out = render(
+            "a (111)",
+            "b (222)",
+            &lines("one\ntwo"),
+            &lines("one\nTWO"),
+            false,
+        );
         assert!(
             !out.contains('\x1b'),
             "plain output must have no ANSI codes"
@@ -334,6 +412,19 @@ mod tests {
         assert!(out.contains("-two\n"));
         assert!(out.contains("+TWO\n"));
         assert!(out.contains(" one\n")); // context line, space-prefixed
+    }
+
+    #[test]
+    fn hunk_header_shows_nearest_heading() {
+        // "#Q3 Results" is a heading above the changed line.
+        let old = lines("#Q3 Results\nRevenue was 4.2M");
+        let new = lines("#Q3 Results\nRevenue was 4.8M");
+        let out = render("a", "b", &old, &new, false);
+        assert!(out.contains("@@"));
+        assert!(
+            out.contains("Q3 Results"),
+            "hunk header should name the section"
+        );
     }
 
     #[test]
@@ -350,9 +441,9 @@ mod tests {
     fn colored_render_emphasizes_only_the_changed_word() {
         // Only "4.2M" → "4.8M" changed; the rest of the line should not be
         // reverse-video emphasized.
-        let old = "Revenue was 4.2M today\n";
-        let new = "Revenue was 4.8M today\n";
-        let out = render("a", "b", old, new, true);
+        let old = lines("Revenue was 4.2M today");
+        let new = lines("Revenue was 4.8M today");
+        let out = render("a", "b", &old, &new, true);
 
         // The changed tokens are wrapped in the reverse-video emphasis codes.
         assert!(out.contains(&format!("{RED_EMPH}4.2M{RESET}")));

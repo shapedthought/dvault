@@ -13,6 +13,15 @@ pub use docx::{ChangeKind, TrackedChange};
 use anyhow::{Result, bail};
 use std::path::Path;
 
+/// One extracted line, with whether it's a section marker (a Word heading or a
+/// `[Header]`/`[Footnotes]` region banner) — used to annotate diff hunks with
+/// where in the document a change is.
+#[derive(Debug, Clone)]
+pub struct Line {
+    pub text: String,
+    pub heading: bool,
+}
+
 /// File extensions dvault accepts at `add` time. Extend this as extractors
 /// are implemented (planned: xlsx, pptx, pdf).
 pub const SUPPORTED: &[&str] = &["docx"];
@@ -38,6 +47,16 @@ pub fn can_diff(path: &str) -> bool {
 pub fn extract_text(path: &str, bytes: &[u8]) -> Result<Vec<String>> {
     match extension(path).as_deref() {
         Some("docx") => docx::extract(bytes),
+        Some(other) => bail!("text diff not yet supported for .{other} files"),
+        None => bail!("cannot determine file type for {path}"),
+    }
+}
+
+/// Like [`extract_text`], but each line also carries whether it's a section
+/// marker (heading/banner), for diff hunk annotation.
+pub fn extract_lines(path: &str, bytes: &[u8]) -> Result<Vec<Line>> {
+    match extension(path).as_deref() {
+        Some("docx") => docx::extract_lines(bytes),
         Some(other) => bail!("text diff not yet supported for .{other} files"),
         None => bail!("cannot determine file type for {path}"),
     }

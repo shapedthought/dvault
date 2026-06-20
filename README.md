@@ -184,7 +184,13 @@ With `--graph`, decorated with `HEAD ->`, branch, and tag refs:
 ```
 
 ### `dvault diff <file>` / `dvault diff <from> <to> <file>`
-Shows readable changes for a `.docx`. Deletions are shown in **red**, additions in **green** (like `git diff`), and within a changed paragraph the **specific changed words are highlighted** (reverse video) so a one-word edit doesn't look like the whole paragraph changed.
+Shows readable changes for a `.docx`. Deletions are shown in **red**, additions in **green** (like `git diff`), and within a changed paragraph the **specific changed words are highlighted** (reverse video) so a one-word edit doesn't look like the whole paragraph changed. Each hunk is labelled with the **nearest heading**, so you know *which section* changed:
+```
+@@ -2,7 +2,7 @@  Q3 Results
+-Revenue for Q3 was $4.2M.
++Revenue for Q3 was $4.8M.
+```
+(Heading detection uses Word's heading styles — `Heading 1`, `Title`, etc. Manually-bolded "headings" with no style can't be detected. This flows into `compare` and `report` too.)
 
 Diffs cover the whole document, not just the body: **headers, footers, footnotes, endnotes, and comments** are included, each introduced by a `[Header]` / `[Footnotes]` / … banner so you can see *where* a change happened. (Text boxes are part of the body and are covered automatically.)
 - With just a filename: compares your **working copy** against its last commit.

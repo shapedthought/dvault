@@ -12,7 +12,7 @@
 
 use crate::db::Db;
 use crate::diff;
-use crate::extract::{can_diff, extract_text};
+use crate::extract::{Line, can_diff, extract_lines};
 use crate::vault::Vault;
 use anyhow::{Context, Result, bail};
 use similar::{ChangeTag, TextDiff};
@@ -33,13 +33,13 @@ pub fn run(args: Vec<String>, format: String, out: Option<String>) -> Result<()>
     }
     let fmt = parse_format(&format)?;
 
-    let old_text = diff::joined_text(&extract_text(&file_rel, &old.bytes)?);
-    let new_text = diff::joined_text(&extract_text(&file_rel, &new.bytes)?);
+    let old_lines = extract_lines(&file_rel, &old.bytes)?;
+    let new_lines = extract_lines(&file_rel, &new.bytes)?;
 
     let content = match fmt {
-        Format::Html => render_html(&file_rel, &old.label, &new.label, &old_text, &new_text),
+        Format::Html => render_html(&file_rel, &old.label, &new.label, &old_lines, &new_lines),
         Format::Markdown => {
-            render_markdown(&file_rel, &old.label, &new.label, &old_text, &new_text)
+            render_markdown(&file_rel, &old.label, &new.label, &old_lines, &new_lines)
         }
     };
 
@@ -99,19 +99,34 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn render_html(file_rel: &str, old_label: &str, new_label: &str, old: &str, new: &str) -> String {
-    let (ins, del) = counts(old, new);
-    let diff = TextDiff::from_lines(old, new);
+fn render_html(
+    file_rel: &str,
+    old_label: &str,
+    new_label: &str,
+    old: &[Line],
+    new: &[Line],
+) -> String {
+    let old_text = diff::join_lines(old);
+    let new_text = diff::join_lines(new);
+    let (ins, del) = counts(&old_text, &new_text);
+    let diff_obj = TextDiff::from_lines(&old_text, &new_text);
 
     let mut body = String::new();
     let mut first = true;
-    for group in diff.grouped_ops(3) {
+    for group in diff_obj.grouped_ops(3) {
         if !first {
             body.push_str("    <div class=\"gap\">⋯</div>\n");
         }
         first = false;
+        // Section context: the nearest heading above the change in this hunk.
+        let g0 = group.first().unwrap();
+        let (cos, cns) =
+            diff::first_change(&group).unwrap_or((g0.old_range().start, g0.new_range().start));
+        if let Some(h) = diff::hunk_heading(new, cns, old, cos) {
+            body.push_str(&format!("    <div class=\"section\">{}</div>\n", esc(&h)));
+        }
         for op in &group {
-            for change in diff.iter_inline_changes(op) {
+            for change in diff_obj.iter_inline_changes(op) {
                 let (cls, sign) = match change.tag() {
                     ChangeTag::Delete => ("del", '-'),
                     ChangeTag::Insert => ("ins", '+'),
@@ -155,6 +170,7 @@ fn render_html(file_rel: &str, old_label: &str, new_label: &str, old: &str, new:
   .del {{ background: #fbe9e7; }} .ins {{ background: #e6f4ea; }}
   .del .w {{ background: #f4b9b1; border-radius: 2px; }}
   .ins .w {{ background: #a8e0bb; border-radius: 2px; }}
+  .section {{ color: #555; font-weight: 600; padding: .3rem .6rem; background: #f3f3f3; border-top: 1px solid #e5e5e5; }}
   .gap {{ text-align: center; color: #bbb; padding: .2rem; }}
   footer {{ margin-top: 1.5rem; color: #999; font-size: .8rem; }}
 </style>
@@ -182,12 +198,13 @@ fn render_markdown(
     file_rel: &str,
     old_label: &str,
     new_label: &str,
-    old: &str,
-    new: &str,
+    old: &[Line],
+    new: &[Line],
 ) -> String {
-    let (ins, del) = counts(old, new);
+    let (ins, del) = counts(&diff::join_lines(old), &diff::join_lines(new));
     // Reuse the plain unified-diff renderer for a fenced ```diff block, which
-    // renders red/green in most Markdown viewers.
+    // renders red/green in most Markdown viewers (and now carries section
+    // headings on the hunk lines).
     let unified = diff::render(old_label, new_label, old, new, false);
     format!(
         "# Changes to {file_rel}\n\n\
@@ -203,6 +220,16 @@ fn render_markdown(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Plain (non-heading) diff lines from text.
+    fn lines(s: &str) -> Vec<Line> {
+        s.lines()
+            .map(|t| Line {
+                text: t.to_string(),
+                heading: false,
+            })
+            .collect()
+    }
 
     #[test]
     fn format_parsing_and_defaults() {
@@ -236,8 +263,8 @@ mod tests {
             "f.docx",
             "v1",
             "v2",
-            "Revenue was 4.2M\n",
-            "Revenue was 4.8M\n",
+            &lines("Revenue was 4.2M"),
+            &lines("Revenue was 4.8M"),
         );
         // Self-contained document with a summary.
         assert!(html.starts_with("<!doctype html>"));
@@ -250,7 +277,13 @@ mod tests {
 
     #[test]
     fn html_escapes_special_characters() {
-        let html = render_html("f.docx", "v1", "v2", "a < b & c\n", "a < b & d\n");
+        let html = render_html(
+            "f.docx",
+            "v1",
+            "v2",
+            &lines("a < b & c"),
+            &lines("a < b & d"),
+        );
         assert!(html.contains("&lt;"));
         assert!(html.contains("&amp;"));
         assert!(!html.contains("a < b & c")); // raw angle/amp not present unescaped
@@ -258,7 +291,7 @@ mod tests {
 
     #[test]
     fn markdown_has_fenced_diff_block() {
-        let md = render_markdown("f.docx", "v1", "v2", "old line\n", "new line\n");
+        let md = render_markdown("f.docx", "v1", "v2", &lines("old line"), &lines("new line"));
         assert!(md.starts_with("# Changes to f.docx"));
         assert!(md.contains("```diff"));
         assert!(md.contains("-old line"));
