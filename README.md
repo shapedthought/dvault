@@ -15,11 +15,12 @@ Git-like version control for Word documents — without Git, and without needing
 
 **What you get:**
 
-- **Readable, content-level diffs** of `.docx` — across the body *and* headers, footers, footnotes, and comments — with the specific changed words highlighted
+- **Readable, content-level diffs** of `.docx` — across the body *and* headers, footers, footnotes, and comments — with the changed words highlighted and each change labelled with the **section** it's in. Also `compare` two loose files with no vault.
 - **Milestone history**: snapshots, `log` (with a `--graph`), `show`, word-count `stats`, and `tag`s you can use anywhere a commit is expected
 - **Branching and merging** (whole-file conflict resolution — you pick a side)
 - Surface Word's own **tracked changes**, and generate shareable **HTML / Markdown** diff reports
-- **Multi-person collaboration** over a shared/synced folder — per-machine identity and an advisory lock, no server
+- **Multi-person collaboration** with no server — over a shared/synced folder (per-machine identity + an advisory lock), or by emailing a **handoff** slip to someone who only has Word
+- A built-in **web UI** (`dvault serve`) to browse history and review diffs in a browser — for collaborators who'd rather not use the command line
 - Runs as a **single binary or a Docker container** — no cloud, no Git, no install required
 
 ## Focus
@@ -467,6 +468,7 @@ The slip records which committed version the document was based on, so `receive`
   HEAD                 # the branch you're on
   refs/heads/          # one file per branch (its tip commit)
   refs/tags/           # one file per tag
+  handoffs/            # records of documents currently out for edit
   lock                 # present only while the advisory lock is held
 ```
 
